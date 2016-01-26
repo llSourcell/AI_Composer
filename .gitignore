@@ -1,0 +1,10 @@
+data
+models/*.model
+models/checkpoint
+python-midi
+research
+tensorflow
+
+*.midi
+*.pyc
+.DS_Store
