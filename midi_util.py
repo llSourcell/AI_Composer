@@ -81,5 +81,20 @@ def sequence_to_midi(sequence, output_filename):
 
     midi.write_midifile(output_filename, pattern)
 
+def i_vi_iv_v(n):
+
+    # cmaj = (60, 72, 76, 79)
+    # amin = (57, 72, 76, 81)
+    # fmaj = (53, 72, 77, 81)
+    # gmaj = (55, 74, 79, 83)
+
+    cmaj = (72, 76, 79)
+    amin = (72, 76, 81)
+    fmaj = (72, 77, 81)
+    gmaj = (74, 79, 83)
+
+    progression = [cmaj, amin, fmaj, gmaj]
+    return progression * n
+
 if __name__ == '__main__':
     pass
