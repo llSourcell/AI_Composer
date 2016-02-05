@@ -4,10 +4,12 @@ import tensorflow as tf
 from tensorflow.models.rnn import rnn_cell
 from tensorflow.models.rnn import rnn, seq2seq
 
+# TODO(yoavz): ideas
+# 1. add dropout?
+
 class Model(object):
     """ RNN Model """
     
-    # def __init__(self, batch_size, input_dimension, seq_length, hidden_size=100):
     def __init__(self, config):
 
         self.batch_size = batch_size = config["batch_size"]

@@ -2,7 +2,7 @@ import os
 import numpy as np
 import tensorflow as tf    
 
-from midi_util import midi_to_sequence
+import midi_util
 
 def prepare_data(dataset_subdir, data_dir='data/JSBChorales'):
     """ Args: location of the dataset
@@ -26,6 +26,21 @@ def prepare_data(dataset_subdir, data_dir='data/JSBChorales'):
 
     return (train_seq, max_seq_length, max_note)
 
+def prepare_targets(data):
+    # roll back the time steps axis to get the target of each example
+    targets = np.roll(data, -1, axis=0)
+    # set final time step to "end of sequence" token
+    targets[-1, :, :] = 0
+
+    # sanity check
+    assert targets.shape[0] == data.shape[0]
+    for i in range(targets.shape[0]-1):
+        assert data[i+1, :, :].tolist() == targets[i, :, :].tolist()
+    # print 'passed sanity checks'
+
+    return targets
+
+
 def sequences_to_data(seqs, seq_length, num_notes):
     """ Args: list of sequences, seq length, number of possible notes
         Returns data and targets matrices
@@ -41,21 +56,37 @@ def sequences_to_data(seqs, seq_length, num_notes):
       for c_idx, chord in enumerate(seq):
           data[c_idx, idx, chord] = 1
 
-    # roll back the time steps axis to get the target of each example
-    targets = np.roll(data, -1, axis=0)
-    # set final time step to "end of sequence" token
-    targets[-1, :, :] = 0
-    targets[-1, :, input_dim-1] = 1
-
-    # sanity check
-    assert targets.shape[0] == data.shape[0]
-    for i in range(targets.shape[0]-1):
-        assert data[i+1, :, :].tolist() == targets[i, :, :].tolist()
-    # print 'passed sanity checks'
+    targets = prepare_targets(data)
 
     return (data, targets)
 
-def load_data():
+def load_data(data_dir):
+
+    training = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'))
+    testing = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'))
+    valid = midi_util.parse_midi_directory(os.path.join(data_dir, 'valid'))
+
+    return {
+        "train": {
+            "data": training,
+            "targets": prepare_targets(training),
+            "seq_length": training.shape[1]
+        },
+        "test": {
+            "data": testing,
+            "targets": prepare_targets(testing),
+            "seq_length": testing.shape[1]
+        },
+        "valid": {
+            "data": valid,
+            "targets": prepare_targets(valid),
+            "seq_length": valid.shape[1]
+        },
+        "input_dim": training.shape[2]
+    }
+
+def old_load_data():
+    # TODO(yoavz): depcrecate
     train_seqs, train_len, train_max = prepare_data('train')
     valid_seqs, valid_len, valid_max = prepare_data('valid')
     test_seqs, test_len, test_max = prepare_data('test')
