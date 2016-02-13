@@ -107,6 +107,9 @@ def chord_on(notes=[]):
         chord[n] = 1.0
     return chord 
 
+def chord_off(chord):
+    return np.roll(chord, RANGE)
+
 def cmaj():
     return chord_on((72, 76, 79))
 
@@ -118,9 +121,6 @@ def fmaj():
 
 def gmaj():
     return chord_on((74, 79, 83))
-
-def chord_off(chord):
-    return np.roll(chord, RANGE)
 
 def i_vi_iv_v(n):
     i = cmaj()

@@ -7,25 +7,8 @@ import matplotlib.pyplot as plt
 
 import midi_util
 import sampling
-import preprocess
+import util
 from model import Model
-
-def run_epoch(session, model, seq_data, seq_targets, training=False):
-    if training:
-        _, loss_value = session.run(
-            [model.train_step, model.loss],
-            feed_dict={
-                model.seq_input: seq_data,
-                model.seq_targets: seq_targets
-            })
-    else:
-        loss_value = session.run(
-            model.loss,
-            feed_dict={
-                model.seq_input: seq_data,
-                model.seq_targets: seq_targets
-            })
-    return loss_value
 
 if __name__ == '__main__':
     np.random.seed(1)      
@@ -48,7 +31,7 @@ if __name__ == '__main__':
     chord_seq = np.tile(chord_seq, (batch_size, 1, 1))
     # swap axis for (seq_length x batch_size x num_dims)
     data = np.swapaxes(chord_seq, 0, 1)
-    targets = preprocess.prepare_targets(data)
+    targets = util.prepare_targets(data)
 
     config = {
         "input_dim": dims,
@@ -71,7 +54,7 @@ if __name__ == '__main__':
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
         for i in range(max_epochs):
-            loss = run_epoch(session, train_model, data, targets, training=True)
+            loss = util.run_epoch(session, train_model, data, targets, training=True)
             if i % 10 == 0:
                 print 'Loss: {}'.format(loss)
             if loss < loss_convergence:

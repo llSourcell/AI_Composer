@@ -7,25 +7,8 @@ import matplotlib.pyplot as plt
 
 import midi_util
 import sampling
-import preprocess
+import util
 from model import Model
-
-def run_epoch(session, model, seq_data, seq_targets, training=False):
-    if training:
-        _, loss_value = session.run(
-            [model.train_step, model.loss],
-            feed_dict={
-                model.seq_input: seq_data,
-                model.seq_targets: seq_targets
-            })
-    else:
-        loss_value = session.run(
-            model.loss,
-            feed_dict={
-                model.seq_input: seq_data,
-                model.seq_targets: seq_targets
-            })
-    return loss_value
 
 if __name__ == '__main__':
     np.random.seed(1)      
@@ -45,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--charts_suffix', type=str, default='_jsb_chorales.png')
     args = parser.parse_args()
 
-    data = preprocess.load_data(args.data_dir)
+    data = util.load_data(args.data_dir)
     print 'Finished loading data, input dim: {}'.format(data["input_dim"])
 
     default_config = {
@@ -59,6 +42,7 @@ if __name__ == '__main__':
         return dict(config, **{
             "batch_size": data[name]["data"].shape[1],
             "seq_length": data[name]["data"].shape[0]
+        })
 
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
 
@@ -95,12 +79,12 @@ if __name__ == '__main__':
                         train_model.assign_lr(session, learning_rate)
                         train_model.assign_lr_decay(session, args.learning_rate_decay)
                         for i in range(args.num_epochs):
-                            loss = run_epoch(session, train_model, 
-                                             data["train"]["data"], data["train"]["targets"], 
-                                             training=True)
+                            loss = util.run_epoch(session, train_model, 
+                                data["train"]["data"], data["train"]["targets"], 
+                                training=True)
                             train_losses.append((i, loss))
                             if i % 10 == 0:
-                                valid_loss = run_epoch(session, valid_model, 
+                                valid_loss = util.run_epoch(session, valid_model, 
                                     data["valid"]["data"], data["valid"]["targets"])
                                 valid_losses.append((i, valid_loss))
                                 print 'Epoch: {}, Train Loss: {}, Valid Loss: {}'.format(i, loss, valid_loss)
