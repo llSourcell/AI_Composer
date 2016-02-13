@@ -3,6 +3,7 @@ import argparse
  
 import numpy as np
 import tensorflow as tf    
+import matplotlib.pyplot as plt
 
 import midi_util
 import sampling
@@ -31,53 +32,58 @@ if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Music RNN')
     parser.add_argument('--train', action='store_true', default=False)
-    parser.add_argument('-n', '--model_name', type=str, default='default_model')
-    parser.add_argument('-d', '--model_dir', type=str, default='models')
-    parser.add_argument('-s', '--model_suffix', type=str, default='_jsb_chorales.model')
-    parser.add_argument('-t', '--temp', type=float, default=0.5)
+    parser.add_argument('--temp', type=float, default=0.5)
+    parser.add_argument('--num_epochs', type=int, default=100)
+    parser.add_argument('--learning_rate', type=float, default=1e-2)
+    parser.add_argument('--learning_rate_decay', type=float, default=0.9)
+
+    parser.add_argument('--model_name', type=str, default='default_model')
+    parser.add_argument('--model_dir', type=str, default='models')
+    parser.add_argument('--model_suffix', type=str, default='_jsb_chorales.model')
     parser.add_argument('--data_dir', type=str, default='data/JSBChorales')
+    parser.add_argument('--charts_dir', type=str, default='charts')
+    parser.add_argument('--charts_suffix', type=str, default='_jsb_chorales.png')
     args = parser.parse_args()
 
     data = preprocess.load_data(args.data_dir)
     print 'Finished loading data, input dim: {}'.format(data["input_dim"])
 
-    num_epochs = 800
     default_config = {
         "input_dim": data["input_dim"],
-        "hidden_size": 150,
+        "hidden_size": 100,
         "num_layers": 1,
+        "dropout_prob": 0.5
     } 
 
     def set_config(config, name):
         return dict(config, **{
             "batch_size": data[name]["data"].shape[1],
             "seq_length": data[name]["data"].shape[0]
-        })
 
-    with tf.Graph().as_default(), tf.Session() as session:
+    initializer = tf.random_uniform_initializer(-0.1, 0.1)
 
-        initializer = tf.random_uniform_initializer(-0.1, 0.1)
+    if args.train:
+        best_config = None
+        best_valid_loss = None
+        best_model_name = None
 
-        if args.train:
-            best_config = None
-            best_valid_loss = None
-            best_model_name = None
+        for num_layers in [1, 2]:
+            for hidden_size in [50, 100]:
+                for learning_rate in [1e-2]:
 
-            for num_layers in [1]:
-                for hidden_size in [150]:
-                    for learning_rate in [1e-2]:
+                    model_name = "nl_" + str(num_layers) + \
+                                 "_hs_" + str(hidden_size) + \
+                                 "_lr_" + str(learning_rate).replace(".", "p")
+                    config = dict(default_config, **{
+                        "input_dim": data["input_dim"],
+                        "hidden_size": hidden_size,
+                        "num_layers": num_layers,
+                    })
 
-                        model_name = "nl_" + str(num_layers) + \
-                                     "_hs_" + str(hidden_size) + \
-                                     "_lr_" + str(learning_rate).replace(".", "p")
-                        config = {
-                            "input_dim": data["input_dim"],
-                            "hidden_size": hidden_size,
-                            "num_layers": num_layers,
-                        }
-
+                    with tf.Graph().as_default(), tf.Session() as session:
                         with tf.variable_scope(model_name, reuse=None):
-                            train_model = Model(set_config(config, "train"))
+                            train_model = Model(set_config(config, "train"), 
+                                                training=True)
                         with tf.variable_scope(model_name, reuse=True):
                             valid_model = Model(set_config(config, "valid"))
 
@@ -85,20 +91,32 @@ if __name__ == '__main__':
                         tf.initialize_all_variables().run()
 
                         # training
-                        learning_rate = learning_rate
+                        train_losses, valid_losses = [], []
                         train_model.assign_lr(session, learning_rate)
-                        for i in range(num_epochs):
+                        train_model.assign_lr_decay(session, args.learning_rate_decay)
+                        for i in range(args.num_epochs):
                             loss = run_epoch(session, train_model, 
                                              data["train"]["data"], data["train"]["targets"], 
                                              training=True)
+                            train_losses.append((i, loss))
                             if i % 10 == 0:
                                 valid_loss = run_epoch(session, valid_model, 
                                     data["valid"]["data"], data["valid"]["targets"])
+                                valid_losses.append((i, valid_loss))
                                 print 'Epoch: {}, Train Loss: {}, Valid Loss: {}'.format(i, loss, valid_loss)
 
                         saver.save(session, os.path.join(args.model_dir, model_name + args.model_suffix))
-                        print "Saved model"
+                        # print "Saved model"
 
+                        # set loss axis max to 20
+                        axes = plt.gca()
+                        axes.set_ylim([0, 20])
+                        plt.plot([t[0] for t in train_losses], [t[1] for t in train_losses])
+                        plt.plot([t[0] for t in valid_losses], [t[1] for t in valid_losses])
+                        plt.legend(['Train Loss', 'Validation Loss'])
+                        plt.savefig(os.path.join(args.charts_dir, model_name + args.charts_suffix))
+                        plt.clf()
+                        # print "Saved graph"
 
                         valid_loss = run_epoch(session, valid_model, 
                             data["valid"]["data"], data["valid"]["targets"])
@@ -109,33 +127,35 @@ if __name__ == '__main__':
                             best_config = config
                             best_model_name = model_name
 
-            print 'Best config ({}): {}'.format(best_model_name, best_config)
+        print 'Best config ({}): {}'.format(best_model_name, best_config)
+        sample_model_name = best_model_name
 
-            with tf.variable_scope(best_model_name, reuse=True):
-                test_model = Model(set_config(best_config, "test"))
+    else:
+        sample_model_name = args.model_name
 
-            # testing
-            test_loss = run_epoch(session, test_model, data["test"]["data"], data["test"]["targets"])
-            print 'Testing Loss ({}): {}'.format(best_model_name, test_loss)
 
-            with tf.variable_scope(best_model_name, reuse=True):
-                sampling_model = Model(dict(best_config, **{
-                    "batch_size": 1,
-                    "seq_length": 1
-                }))
+    # SAMPLING SESSION #
 
-        else:
-            with tf.variable_scope(args.model_name, reuse=None):
-                sampling_model = Model(dict(default_config, **{
-                    "batch_size": 1,
-                    "seq_length": 1
-                }))
-            saver = tf.train.Saver(tf.all_variables())
-            model_path = os.path.join(args.model_dir, args.model_name + args.model_suffix)
-            saver.restore(session, model_path)
+    with tf.Graph().as_default(), tf.Session() as session:
+
+        with tf.variable_scope(sample_model_name, reuse=None):
+            sampling_model = Model(dict(default_config, **{
+                "batch_size": 1,
+                "seq_length": 1
+            }))
+        with tf.variable_scope(sample_model_name, reuse=True):
+            test_model = Model(set_config(default_config, "test"))
+
+        saver = tf.train.Saver(tf.all_variables())
+        model_path = os.path.join(args.model_dir, sample_model_name + args.model_suffix)
+        saver.restore(session, model_path)
+
+        # testing
+        test_loss = run_epoch(session, test_model, data["test"]["data"], data["test"]["targets"])
+        print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
 
         # start with the first chord
-        chord = data["train"]["data"][0, 0, :]
+        chord = midi_util.cmaj_on()
         seq = [chord]
         state = sampling_model.initial_state.eval()
 
@@ -151,15 +171,14 @@ if __name__ == '__main__':
                 feed_dict=feed)
             probs = np.reshape(probs, [data["input_dim"]])
             # chord = sampling.sample_notes_static(probs, num_notes=4)
-            chord = sampling.sample_notes_dynamic(probs, min_prob=args.temp)
-            # if the "end-of-sequence token reached, exit"
-            # if chord[-1] > 0:
-            #     print "Sequence length: {}".format(i)
-            #     continue
-            sampling.visualize_probs(probs)
+            chord = sampling.sample_notes_dynamic(probs, 
+                min_prob=args.temp, 
+                max_notes=8) # end 4 notes, start 4 notes
+            # chord = sampling.sample_notes_history(probs, seq,
+            #       min_prob=args.temp,
+                  # max_notes=4)
             seq.append(chord)
          
-        print seq
         midi_util.dump_sequence_to_midi(seq, "best.midi")
 
 

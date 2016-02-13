@@ -5,24 +5,28 @@ from tensorflow.models.rnn import rnn_cell
 from tensorflow.models.rnn import rnn, seq2seq
 
 # TODO(yoavz): ideas
-# 1. add dropout?
 
 class Model(object):
     """ RNN Model """
     
-    def __init__(self, config):
+    def __init__(self, config, training=False):
 
         self.batch_size = batch_size = config["batch_size"]
         self.seq_length = seq_length = config["seq_length"]
         input_dim = config["input_dim"]
         hidden_size = config["hidden_size"]
         num_layers = config["num_layers"]
+        dropout_prob = config["dropout_prob"]
+
+        if (dropout_prob <= 0.0 or dropout_prob > 1.0):
+            raise Exception("Invalid dropout probability: {}".format(dropout_prob))
 
         # setup variables
         with tf.variable_scope("rnnlstm"):
             output_W = tf.get_variable("output_w", [hidden_size, input_dim])
             output_b = tf.get_variable("output_b", [input_dim])
             self.lr = tf.Variable(0.0, name="learning_rate", trainable=False)
+            self.lr_decay = tf.Variable(0.0, name="learning_rate_decay", trainable=False)
 
         self.seq_input = \
             tf.placeholder(tf.float32, [seq_length, batch_size, input_dim])
@@ -32,6 +36,8 @@ class Model(object):
         # cell = MultiBasicRNNCell(hidden_size)  
         lstm_cell = rnn_cell.BasicLSTMCell(hidden_size)  
         cell = rnn_cell.MultiRNNCell([lstm_cell] * num_layers)
+        if training and dropout_prob < 1.0:
+            cell = rnn_cell.DropoutWrapper(cell, output_keep_prob = dropout_prob)
 
         self.initial_state = cell.zero_state(batch_size, tf.float32)
 
@@ -59,8 +65,11 @@ class Model(object):
 
         losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, targets_concat)
         self.loss = tf.reduce_sum(losses) / batch_size / seq_length
-        self.train_step = tf.train.RMSPropOptimizer(self.lr, decay=0.9) \
-                                  .minimize(self.loss)
+        self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
+                            .minimize(self.loss)
 
     def assign_lr(self, session, lr_value):
         session.run(tf.assign(self.lr, lr_value))
+
+    def assign_lr_decay(self, session, lr_decay_value):
+        session.run(tf.assign(self.lr_decay, lr_decay_value))

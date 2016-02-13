@@ -79,6 +79,9 @@ def dump_sequence_to_midi(sequence, output_filename, time_step=120, max_note_len
             steps_skipped += 1
             continue
 
+        # NoteOffEvents come first so they'll have the tick value
+        idxs = sorted(idxs, reverse=True)
+
         # if there are notes
         for i in range(len(idxs)):
             if i == 0:
@@ -87,116 +90,50 @@ def dump_sequence_to_midi(sequence, output_filename, time_step=120, max_note_len
                 tick = 0
 
             idx = idxs[i]
-            if idx < RANGE:
-                track.append(midi.NoteOnEvent(tick=tick, pitch=idx, velocity=90))
-            else: 
+            if idx >= RANGE:
                 track.append(midi.NoteOffEvent(tick=tick, pitch=idx-RANGE))
+            else: 
+                track.append(midi.NoteOnEvent(tick=tick, pitch=idx, velocity=90))
 
         steps_skipped = 1
 
     track.append(midi.EndOfTrackEvent())
     pattern.append(track)
     midi.write_midifile(output_filename, pattern)
+
+def chord_on(notes=[]):
+    chord = np.zeros(RANGE*2, dtype=np.float32)
+    for n in notes:
+        chord[n] = 1.0
+    return chord 
+
+def cmaj():
+    return chord_on((72, 76, 79))
+
+def amin():
+    return chord_on((72, 76, 81))
+
+def fmaj():
+    return chord_on((72, 77, 81))
+
+def gmaj():
+    return chord_on((74, 79, 83))
+
+def chord_off(chord):
+    return np.roll(chord, RANGE)
+
+def i_vi_iv_v(n):
+    i = cmaj()
+    vi = chord_off(cmaj()) + amin()
+    iv = chord_off(amin()) + fmaj()
+    v = chord_off(fmaj()) + gmaj()
+    i_transition = chord_off(gmaj()) + cmaj()
+
+    return [i, vi, iv, v] + \
+           [i_transition, vi, iv, v] * (n-1) + \
+           [i, chord_on(), chord_on(), chord_off(i)]
         
 if __name__ == '__main__':
     a = parse_midi_to_sequence("data/JSBChorales/train/10.mid")
     print np.nonzero(a[-1])[0]
     dump_sequence_to_midi(a, "train_10.midi", time_step=120)
-
-############################
-# VERSION 1 function below #
-# TODO(yoavz): depcrecate  # 
-############################
-
-def midi_to_sequence(input_filename):
-    """ Reads a midi file into a sequence """
-    """ Warning: algorithm is hacky and not verified """
-
-    sequence = []
-    pattern = midi.read_midifile(input_filename)
-
-    if len(pattern) < 1:
-        raise Exception("No pattern found in midi file")
-
-    chord = set()
-    for msg in pattern[0]:
-        # The first nonzero tick indicates a new note
-        # TODO(yoavz): generalize this to all midi instead of just JSBChorales
-        if msg.tick > 0:
-            measures = msg.tick / 120
-            for i in range(measures): 
-                sequence.append(sorted(list(chord)))
-
-        if isinstance(msg, midi.NoteOnEvent):
-            chord.add(msg.data[0])
-        elif isinstance(msg, midi.NoteOffEvent):
-            # sanity check the note is in the chord
-            assert msg.data[0] in chord
-            chord.remove(msg.data[0])
-            
-    return sequence
-
-def sequence_to_midi(sequence, output_filename):
-    """ Dumps the pattern from a sequence to an output file """ 
-    """ Warning: algorithm is hacky and not verified """
-
-    pattern = midi.Pattern(resolution=100)
-    track = midi.Track()
-    pattern.append(track)
-
-    history = set()
-    time_passed = 0
-    for chord in sequence:
-        first_tick = False
-
-        for note in history:
-            if note not in chord:
-                if not first_tick: 
-                    track.append(midi.NoteOffEvent(tick=time_passed, pitch=note))
-                    first_tick = True
-                else:
-                    track.append(midi.NoteOffEvent(tick=0, pitch=note))
-
-        for note in chord:
-            if note not in history:
-                if not first_tick:
-                    track.append(midi.NoteOnEvent(tick=time_passed, 
-                                                  velocity=90, 
-                                                  pitch=note))
-                    first_tick = True
-                else:
-                    track.append(midi.NoteOnEvent(tick=0, 
-                                                  velocity=90, 
-                                                  pitch=note))
-
-        if not first_tick:
-            time_passed += 120
-        else:
-            time_passed = 120
-
-        # reset the history
-        history = set(chord)
-    
-    # flush out the last chords in the sequence
-    for idx, note in enumerate(chord):
-        if idx == 0:
-            track.append(midi.NoteOffEvent(tick=time_passed, pitch=note))
-        else:
-            track.append(midi.NoteOffEvent(tick=0, pitch=note))
-
-    midi.write_midifile(output_filename, pattern)
-
-def i_vi_iv_v(n):
-
-    # cmaj = (60, 72, 76, 79)
-    # amin = (57, 72, 76, 81)
-    # fmaj = (53, 72, 77, 81)
-    # gmaj = (55, 74, 79, 83)
-
-    cmaj = (72, 76, 79)
-    amin = (72, 76, 81)
-    fmaj = (72, 77, 81)
-    gmaj = (74, 79, 83)
-
-    progression = [cmaj, amin, fmaj, gmaj]
-    return progression * n
