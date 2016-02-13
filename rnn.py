@@ -102,7 +102,7 @@ if __name__ == '__main__':
                         plt.clf()
                         # print "Saved graph"
 
-                        valid_loss = run_epoch(session, valid_model, 
+                        valid_loss = util.run_epoch(session, valid_model, 
                             data["valid"]["data"], data["valid"]["targets"])
                         print "Model {} Loss: {}".format(model_name, valid_loss)
                         if best_valid_loss == None or valid_loss < best_valid_loss:
@@ -135,7 +135,7 @@ if __name__ == '__main__':
         saver.restore(session, model_path)
 
         # testing
-        test_loss = run_epoch(session, test_model, data["test"]["data"], data["test"]["targets"])
+        test_loss = util.run_epoch(session, test_model, data["test"]["data"], data["test"]["targets"])
         print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
 
         # start with the first chord
