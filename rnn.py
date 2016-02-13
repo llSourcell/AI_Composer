@@ -139,7 +139,7 @@ if __name__ == '__main__':
         print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
 
         # start with the first chord
-        chord = midi_util.cmaj_on()
+        chord = midi_util.cmaj()
         seq = [chord]
         state = sampling_model.initial_state.eval()
 
