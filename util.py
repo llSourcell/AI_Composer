@@ -18,11 +18,17 @@ def prepare_targets(data):
 
     return targets
 
-def load_data(data_dir):
+def load_data(data_dir, min_time_step=-1, round_to=-1, max_seq_len=-1):
 
-    training = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'))
-    testing = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'))
-    valid = midi_util.parse_midi_directory(os.path.join(data_dir, 'valid'))
+    training = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'),
+                                              min_time_step=min_time_step, round_to=round_to,
+                                              max_seq_len=max_seq_len)
+    testing = midi_util.parse_midi_directory(os.path.join(data_dir, 'train'),
+                                             min_time_step=min_time_step, round_to=round_to,
+                                             max_seq_len=max_seq_len)
+    valid = midi_util.parse_midi_directory(os.path.join(data_dir, 'valid'),
+                                           min_time_step=min_time_step, round_to=round_to,
+                                           max_seq_len=max_seq_len)
 
     return {
         "train": {

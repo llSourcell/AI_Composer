@@ -20,7 +20,7 @@ if __name__ == '__main__':
     lr = 1e-2
     lr_decay = 0.9
     max_epochs = 1000
-    loss_convergence = 0.02
+    loss_convergence = 0.5
 
     # midi_util.dump_sequence_to_midi(chord_seq, "trivial.midi")
 
@@ -71,9 +71,9 @@ if __name__ == '__main__':
         chord = midi_util.cmaj()
         seq = [chord]
         state = sample_model.initial_state.eval()
+        sampler = sampling.Sampler()
 
-        max_seq_len = 200
-        for i in range(max_seq_len):
+        for i in range(data.shape[0]+1):
             chord = np.reshape(chord, [1, 1, dims])
             feed = {
                 sample_model.seq_input: chord,
@@ -83,7 +83,7 @@ if __name__ == '__main__':
                 [sample_model.probs, sample_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, dims)
-            chord = sampling.sample_notes_dynamic(probs, max_notes=8)
+            chord = sampler.sample_notes_prob(probs)
             seq.append(chord)
     
         midi_util.dump_sequence_to_midi(seq, "trivial.midi")
