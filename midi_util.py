@@ -6,10 +6,7 @@ import midi
 
 RANGE = 128
 
-class NonDivisibleTimeStepException(Exception):
-    pass
-
-def parse_midi_to_sequence(input_filename, round_to=-1, min_time_step=-1, verbose=False):
+def parse_midi_to_sequence(input_filename, time_step, verbose=False):
     sequence = []
     pattern = midi.read_midifile(input_filename)
 
@@ -21,195 +18,178 @@ def parse_midi_to_sequence(input_filename, round_to=-1, min_time_step=-1, verbos
         print "Number of tracks: {}".format(len(pattern))
 
     def round_tick(tick):
-        if round_to < 0:
-            return tick
-        else:
-            return int(round(tick/float(round_to)) * round_to)
-
-    if min_time_step < 0:
-        # find min_time_step automatically by finding gcd
-        min_time_step = pattern.resolution
-        for track in pattern:
-            for msg in track:
-                # we don't care about the tick values for non notes
-                if not isinstance(msg, midi.NoteOnEvent) and \
-                   not isinstance(msg, midi.NoteOffEvent):
-                    continue 
-
-                tick = round_tick(msg.tick)
-                if tick > 0:
-                    min_time_step = gcd(min_time_step, tick)
+        return int(round(tick/float(time_step)) * time_step)
 
     if verbose:
-        print "Minimum time step: {}".format(min_time_step)
+        print "Time step: {}".format(time_step)
 
-    def union_tracks(track1, track2):
-        if track1.shape[1] != track2.shape[1]:
-            raise Exception("Track dimensions \
-                don't match: {} vs {}".track1.shape, track2.shape)
-        if track1.shape[0] > track2.shape[0]:
-            unioned = track1
-            track = track2
-        else:
-            unioned = track2
-            track = track1
-
-        for i in range(track.shape[0]): 
-            unioned[i, :] = np.minimum(unioned[i, :] + track[i, :], 1)
-
-        return unioned
-    
-    parsed = None
+    # Track ingestion stage
+    midi_errors = 0
+    notes = { n: [] for n in range(RANGE) }
+    track_ticks = 0
     for track in pattern:
-        seq = list()
-        current_chord = np.zeros(RANGE*2)
+        current_tick = 0
         for msg in track:
+            # ignore all end of track events
             if isinstance(msg, midi.EndOfTrackEvent):
-                continue 
+                continue
 
-            tick = round_tick(msg.tick)
-            if tick > 0:
-                if tick % min_time_step != 0:
-                    raise NonDivisibleTimeStepException("Non-divisible time step \
-                        encountered in MIDI: {}".format(tick))
-                num_time_steps = tick / min_time_step
-                seq.append(current_chord)
-                for i in range(num_time_steps-1):
-                    seq.append(np.zeros(RANGE*2))
-                current_chord = np.zeros(RANGE*2)
+            if msg.tick > 0: 
+                current_tick += msg.tick
 
-            if isinstance(msg, midi.NoteOnEvent):
-                # velocity of 0 is equivalent to note off, so treat as such
-                if msg.get_velocity() == 0:
-                    current_chord[msg.get_pitch() + RANGE] = 1
+            # velocity of 0 is equivalent to note off, so treat as such
+            if isinstance(msg, midi.NoteOnEvent) and msg.get_velocity() != 0:
+                if len(notes[msg.get_pitch()]) > 0 and \
+                   len(notes[msg.get_pitch()][-1]) != 2:
+                    if verbose:
+                        print "Warning: double NoteOn encountered, deleting the first"
+                        print msg
+                        midi_errors += 1
                 else:
-                    current_chord[msg.get_pitch()] = 1
-            elif isinstance(msg, midi.NoteOffEvent):
-                current_chord[msg.get_pitch() + RANGE] = 1
-            else:
-                pass
+                    notes[msg.get_pitch()] += [[current_tick]]
+            elif isinstance(msg, midi.NoteOffEvent) or \
+                (isinstance(msg, midi.NoteOnEvent) and msg.get_velocity() == 0):
+                # sanity check: no notes end without being started
+                if len(notes[msg.get_pitch()][-1]) != 1:
+                    if verbose:
+                        print "Warning: skipping NoteOff Event with no corresponding NoteOn"
+                        print msg
+                        midi_errors += 1
+                else: 
+                    notes[msg.get_pitch()][-1] += [current_tick]
 
-        # flush out remaining chord
-        seq.append(current_chord)
-        if parsed == None:
-            parsed = np.vstack(seq)
-        else:
-            parsed = union_tracks(parsed, np.vstack(seq))
+        track_ticks = max(current_tick, track_ticks)
 
     if verbose:
-        print "Total time steps: {}".format(parsed.shape[0])
+        print "Detected {} midi errors".format(midi_errors)
 
-    return min_time_step, parsed
+    track_ticks = round_tick(track_ticks)
+    if verbose:
+        print "Track ticks (rounded): {} ({} time steps)".format(track_ticks, track_ticks/time_step)
 
-def parse_midi_directory(input_dir, round_to=-1, max_seq_len=-1, min_time_step=-1, 
-                         verbose=False):
+    sequence = np.zeros((track_ticks/time_step, RANGE))
+    
+    # Rounding stage
+    skipped_count = 0
+    for note in notes:
+        for (start, end) in notes[note]:
+            if end - start <= time_step/2:
+                skipped_count += 1
+            else:
+                start_t = round_tick(start) / time_step
+                end_t = round_tick(end) / time_step
+                if start_t == end_t:
+                    skipped_count += 1
+                else:
+                    sequence[start_t:end_t, note] = 1
+
+    return sequence
+
+def parse_midi_directory(input_dir, time_step, max_seq_len=-1, verbose=False):
     # TODO: only uses the first max_seq_len... change this line?
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
-    raw_sequences = list()
-    num_skipped = 0
-    for f in files:
-        try: 
-            _, seq = parse_midi_to_sequence(f, round_to=round_to, min_time_step=120)
-        except NonDivisibleTimeStepException:
-            if verbose:
-                print "Skipped track: {}".format(f)
-            num_skipped += 1
-            continue
-        raw_sequences.append(seq)
+    sequences = [ parse_midi_to_sequence(f, time_step=time_step, verbose=verbose) for f in files ]
 
-    if verbose:
-        print "Number of Sequences: {} ({} skipped due to time step)".format(len(raw_sequences), num_skipped)
-    dims = raw_sequences[0].shape[1]
+    dims = sequences[0].shape[1]
 
     if max_seq_len < 0:
         # make all sequences length of max sequence
-        max_seq_len = max(s.shape[0] for s in raw_sequences)
+        max_seq_len = max(s.shape[0] for s in sequences)
 
     min_seq_len = max_seq_len/2
 
     if verbose:
-        avg_seq_len = sum(s.shape[0] for s in raw_sequences) / len(raw_sequences)
+        avg_seq_len = sum(s.shape[0] for s in sequences) / len(sequences)
         print "Average Sequence Length: {}".format(avg_seq_len)
         print "Max Sequence Length: {}".format(max_seq_len)
 
-    sequences = list()
-    for i in range(len(raw_sequences)):
+    copies = list()
+    for i in range(len(sequences)):
         # ignore any sequences that are too short
-        if raw_sequences[i].shape[0] < min_seq_len:
+        if sequences[i].shape[0] < min_seq_len:
             continue
-        if raw_sequences[i].shape[0] <= max_seq_len:
-            seq = raw_sequences[i].copy()
+        if sequences[i].shape[0] <= max_seq_len:
+            seq = sequences[i].copy()
             seq.resize((max_seq_len, dims))
-            sequences.append(seq)
-        elif raw_sequences[i].shape[0] > max_seq_len:
+            copies.append(seq)
+        elif sequences[i].shape[0] > max_seq_len:
             # split up the sequences into max_seq_len each, except for when
             # the split is less than min_seq_len
-            for j in range(raw_sequences[i].shape[0] / max_seq_len + 1):
-                seq = raw_sequences[i][j*max_seq_len:(j+1)*max_seq_len].copy()
+            for j in range(sequences[i].shape[0] / max_seq_len + 1):
+                seq = sequences[i][j*max_seq_len:(j+1)*max_seq_len].copy()
+                seq.resize((max_seq_len, dims))
+                copies.append(seq)
                 break # TODO: change this line?
                 # if seq.shape[0] < min_seq_len:
                 #     continue
-                # seq.resize((max_seq_len, dims))
-                # sequences.append(seq)
 
-    batch = np.dstack(sequences)
+    batch = np.dstack(copies)
     # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
     batch = np.swapaxes(batch, 1, 2)
 
     return batch
 
-def dump_sequence_to_midi(sequence, output_filename, min_time_step=20, 
-                          resolution=100):
+def dump_sequence_to_midi(sequence, output_filename, time_step, 
+                          resolution, verbose=False):
+    if verbose:
+        print "Dumping sequence to MIDI file: {}".format(output_filename)
+        print "Resolution: {}".format(resolution)
+        print "Time Step: {}".format(time_step)
+
     pattern = midi.Pattern(resolution=resolution)
     track = midi.Track()
 
-    # set the bpm
-    # set_tempo = midi.SetTempoEvent()
-    # set_tempo.set_bpm(bpm)
-    # track.append(set_tempo)
-
     # reshape to (SEQ_LENGTH X NUM_DIMS)
-    sequence = np.reshape(sequence, [-1, RANGE*2])
+    sequence = np.reshape(sequence, [-1, RANGE])
 
-    steps_skipped = 1
-    for seq_idx in range(sequence.shape[0]):
-        idxs = np.nonzero(sequence[seq_idx, :])[0].tolist()
-        # if there aren't any notes, skip this time step
-        if len(idxs) == 0:
-            steps_skipped += 1
-            continue
+    time_steps = sequence.shape[0]
+    if verbose:
+        print "Total number of time steps: {}".format(time_steps)
+
+    steps_passed = 1
+    notes_on = { n: False for n in range(RANGE) }
+    for seq_idx in range(time_steps):
+        notes = np.nonzero(sequence[seq_idx, :])[0].tolist()
+
+        # this tick will only be assigned to first NoteOn/NoteOff in
+        # this time_step
+        tick = steps_passed * time_step
 
         # NoteOffEvents come first so they'll have the tick value
-        idxs = sorted(idxs, reverse=True)
+        # go through all notes that are currently on and see if any
+        # turned off
+        for n in notes_on:
+            if notes_on[n] and n not in notes:
+                track.append(midi.NoteOffEvent(tick=tick, pitch=n))
+                tick, steps_passed = 0, 0
+                notes_on[n] = False
 
-        # if there are notes
-        for i in range(len(idxs)):
-            if i == 0:
-                tick = steps_skipped * min_time_step 
-            else: 
-                tick = 0
+        # Turn on any notes that weren't previously on
+        for note in notes:
+            if not notes_on[note]:
+                track.append(midi.NoteOnEvent(tick=tick, pitch=note, velocity=70))
+                tick, steps_passed = 0, 0
+                notes_on[note] = True
 
-            idx = idxs[i]
-            if idx >= RANGE:
-                track.append(midi.NoteOffEvent(tick=tick, pitch=idx-RANGE))
-            else: 
-                track.append(midi.NoteOnEvent(tick=tick, pitch=idx, velocity=90))
+        steps_passed += 1
 
-        steps_skipped = 1
+    # flush out notes
+    tick = steps_passed * time_step
+    for n in notes_on:
+        track.append(midi.NoteOffEvent(tick=tick, pitch=n))
+        tick = 0
+        notes_on[n] = False
 
-    track.append(midi.EndOfTrackEvent())
+    # track.append(midi.EndOfTrackEvent())
     pattern.append(track)
     midi.write_midifile(output_filename, pattern)
 
 def chord_on(notes=[]):
-    chord = np.zeros(RANGE*2, dtype=np.float32)
+    chord = np.zeros(RANGE, dtype=np.float32)
     for n in notes:
         chord[n] = 1.0
     return chord 
-
-def chord_off(chord):
-    return np.roll(chord, RANGE)
 
 def cmaj():
     return chord_on((72, 76, 79))
@@ -224,20 +204,9 @@ def gmaj():
     return chord_on((74, 79, 83))
 
 def i_vi_iv_v(n):
-    i = cmaj()
-    vi = chord_off(cmaj()) + amin()
-    iv = chord_off(amin()) + fmaj()
-    v = chord_off(fmaj()) + gmaj()
-    i_transition = chord_off(gmaj()) + cmaj()
+    return [cmaj(), amin(), fmaj(), gmaj()]
 
-    return [i, vi, iv, v] + \
-           [i_transition, vi, iv, v] * (n-1) + \
-           [i, chord_on(), chord_on(), chord_off(i)]
-        
 if __name__ == '__main__':
-    # a = parse_midi_to_sequence("nottingham_sample.midi", verbose=True, round_to=120)
-    # dump_sequence_to_midi(a, "sample.midi", min_time_step=120, resolution=480) 
-    parse_midi_directory("data/Nottingham/test", round_to=40, min_time_step=120, 
-                         max_seq_len = 200, verbose=True)
-    # parse_midi_directory("data/JSBChorales/train", round_to=10, verbose=True)
-
+    # parse_midi_directory("data/JSBChorales/train", 120)
+    # parse_midi_directory("data/Nottingham/train", 120)
+    pass

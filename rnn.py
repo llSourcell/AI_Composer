@@ -35,14 +35,12 @@ if __name__ == '__main__':
     if args.dataset == 'bach':
         data_dir = 'data/JSBChorales'
         resolution = 100
-        min_time_step = 120
-        round_to = 120
+        time_step = 120
         max_seq_len = -1 # use the longest seq length
     elif args.dataset == 'nottingham':
         data_dir = 'data/Nottingham'
         resolution = 480
-        min_time_step = 120 
-        round_to = 40
+        time_step = 120 
         max_seq_len = 400
     else:
         raise Exception("unrecognized dataset")
@@ -50,8 +48,7 @@ if __name__ == '__main__':
     model_suffix = '_' + args.dataset + '.model'
     charts_suffix = '_' + args.dataset + '.png'
 
-    data = util.load_data(data_dir, min_time_step=min_time_step, round_to=round_to,
-                          max_seq_len=max_seq_len)
+    data = util.load_data(data_dir, time_step, max_seq_len)
     print 'Finished loading data, input dim: {}'.format(data["input_dim"])
 
     default_config = {
@@ -173,9 +170,10 @@ if __name__ == '__main__':
         chord = data["train"]["data"][0, 0, :]
         seq = [chord]
         state = sampling_model.initial_state.eval()
-        sampler = sampling.Sampler(min_prob = args.temp)
+        sampler = sampling.Sampler(min_prob = args.temp, verbose=True)
 
-        for i in range(args.sample_length):
+        # for i in range(args.sample_length):
+        for i in range(50):
             seq_input = np.reshape(chord, [1, 1, data["input_dim"]])
             feed = {
                 sampling_model.seq_input: seq_input,
@@ -185,8 +183,8 @@ if __name__ == '__main__':
                 [sampling_model.probs, sampling_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, [data["input_dim"]])
-            # chord = sampler.sample_notes_prob(probs)
-            chord = sampler.sample_notes_static(probs)
+            chord = sampler.sample_notes_prob(probs, max_notes=8)
+            # chord = sampler.sample_notes_static(probs)
             seq.append(chord)
          
         midi_util.dump_sequence_to_midi(seq, "best.midi", 
