@@ -51,19 +51,19 @@ class Model(object):
                                   initial_state=self.initial_state)
         self.final_state = states[-1]
 
-        # reshape into [(batch_size * seq_length) x H]
+        # reshape into (batch_size * seq_length) x H
         outputs_concat = tf.reshape(tf.concat(1, outputs), 
                                     [batch_size * seq_length, hidden_size]) 
-        # calculate outputs of [(batch_size * seq_length) x D]
+        # calculate outputs of (batch_size * seq_length) x D
         outputs = tf.matmul(outputs_concat, output_W) + output_b
-        # reshape targets into [(batch_size * seq_length) x D]
-        targets_concat = tf.reshape(tf.concat(1, targets), 
-                                    [batch_size * seq_length, input_dim])
+        # reshape targets into (batch_size * seq_length) x D
+        self.targets_concat = tf.reshape(tf.concat(1, targets), 
+                                         [batch_size * seq_length, input_dim])
 
         # probabilities of each note
         self.probs = tf.sigmoid(outputs)
 
-        losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, targets_concat)
+        losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.targets_concat)
         self.loss = tf.reduce_sum(losses) / batch_size / seq_length
         self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
                             .minimize(self.loss)

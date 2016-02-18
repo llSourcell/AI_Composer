@@ -10,6 +10,13 @@ import sampling
 import util
 from model import Model
 
+###############################################################################
+# TODO:
+# 1. figure out a way to train different sequence lengths
+# 2. change test/accuracy code to reflect loss over the entire sequence instead
+#    of a fixed length of it
+###############################################################################
+
 if __name__ == '__main__':
     np.random.seed(1)      
 
@@ -22,6 +29,7 @@ if __name__ == '__main__':
     parser.add_argument('--early_stopping', type=float, default=0.15, 
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
+    parser.add_argument('--conditioning', type=int, default=-1)
 
     parser.add_argument('--model_name', type=str, default='default_model')
     parser.add_argument('--model_dir', type=str, default='models')
@@ -113,7 +121,7 @@ if __name__ == '__main__':
                                 # early stop if generalization loss is worst than args.early_stopping
                                 early_stop_best_loss = min(early_stop_best_loss, valid_loss) if early_stop_best_loss != None else valid_loss
                                 if ((valid_loss / early_stop_best_loss) - 1.0) > args.early_stopping:
-                                    print 'Early stopping criteria reached'.format(args.early_stopping)
+                                    print 'Early stopping criteria reached: {}'.format(args.early_stopping)
                                     break
 
                         saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
@@ -161,19 +169,58 @@ if __name__ == '__main__':
         model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
         saver.restore(session, model_path)
 
-        # testing
-        test_loss = util.run_epoch(session, test_model, data["test"]["data"], data["test"]["targets"])
+        # Deterministic Testing
+        test_probs, test_loss, test_targets = session.run(
+            [test_model.probs, test_model.loss, test_model.targets_concat],
+            feed_dict = {
+                test_model.seq_input: data["test"]["data"],
+                test_model.seq_targets: data["test"]["targets"]
+        })
         print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
+        predicted = (test_probs > 0.5).astype(np.float32)
+        print predicted.shape
+        print test_targets.shape
+
+        true_positives = np.sum(np.multiply(predicted == test_targets, predicted))
+        false_positives = np.sum(np.multiply(predicted != test_targets, predicted))
+        false_negatives = np.sum(np.multiply(predicted != test_targets, test_targets))
+
+        total_predicted = np.sum(np.multiply(predicted, predicted))
+        total_targets = np.sum(np.multiply(test_targets, test_targets))
+        precision = float(true_positives) / float(total_predicted)
+        recall = float(true_positives) / float(total_targets)
+        print 'Precision: {}'.format(precision)
+        print 'Recall: {}'.format(recall)
+        print 'F1 Score: {}'.format(2 * (precision * recall) / (precision + recall))
+
+        accuracy = float(true_positives) / float(true_positives + false_positives + false_negatives)
+        print 'Accuracy: {}'.format(accuracy)
+
+        sys.exit(1)
 
         # start with the first chord
         # chord = midi_util.cmaj()
-        chord = data["train"]["data"][0, 0, :]
-        seq = [chord]
         state = sampling_model.initial_state.eval()
         sampler = sampling.Sampler(min_prob = args.temp, verbose=True)
 
-        # for i in range(args.sample_length):
-        for i in range(50):
+        if max_seq_len < 0:
+            max_seq_len = 200
+
+        chord = data["train"]["data"][0, 0, :]
+        seq = [chord]
+
+        if args.conditioning > 0:
+            for i in range(1, args.conditioning):
+                seq_input = np.reshape(chord, [1, 1, data["input_dim"]])
+                feed = {
+                    sampling_model.seq_input: seq_input,
+                    sampling_model.initial_state: state
+                }
+                state = session.run(sampling_model.final_state, feed_dict=feed)
+                chord = data["train"]["data"][i, 0, :]
+                seq.append(chord)
+
+        for i in range(max(max_seq_len - len(seq), 0)):
             seq_input = np.reshape(chord, [1, 1, data["input_dim"]])
             feed = {
                 sampling_model.seq_input: seq_input,
@@ -188,6 +235,6 @@ if __name__ == '__main__':
             seq.append(chord)
          
         midi_util.dump_sequence_to_midi(seq, "best.midi", 
-            min_time_step=min_time_step, resolution=resolution)
+            time_step=time_step, resolution=resolution)
 
 

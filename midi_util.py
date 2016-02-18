@@ -103,12 +103,13 @@ def parse_midi_directory(input_dir, time_step, max_seq_len=-1, verbose=False):
         avg_seq_len = sum(s.shape[0] for s in sequences) / len(sequences)
         print "Average Sequence Length: {}".format(avg_seq_len)
         print "Max Sequence Length: {}".format(max_seq_len)
+        print "Number of sequences: {}".format(len(sequences))
 
     copies = list()
     for i in range(len(sequences)):
         # ignore any sequences that are too short
-        if sequences[i].shape[0] < min_seq_len:
-            continue
+        # if sequences[i].shape[0] < min_seq_len:
+        #     continue
         if sequences[i].shape[0] <= max_seq_len:
             seq = sequences[i].copy()
             seq.resize((max_seq_len, dims))
