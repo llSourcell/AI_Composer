@@ -1,6 +1,6 @@
 data
-models/*.model
-models/checkpoint
+2012code
+models
 python-midi
 research
 tensorflow
@@ -8,3 +8,4 @@ tensorflow
 *.midi
 *.pyc
 .DS_Store
+

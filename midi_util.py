@@ -85,52 +85,6 @@ def parse_midi_to_sequence(input_filename, time_step, verbose=False):
 
     return sequence
 
-def parse_midi_directory(input_dir, time_step, max_seq_len=-1, verbose=False):
-    # TODO: only uses the first max_seq_len... change this line?
-    files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
-              if os.path.isfile(os.path.join(input_dir, f)) ] 
-    sequences = [ parse_midi_to_sequence(f, time_step=time_step, verbose=verbose) for f in files ]
-
-    dims = sequences[0].shape[1]
-
-    if max_seq_len < 0:
-        # make all sequences length of max sequence
-        max_seq_len = max(s.shape[0] for s in sequences)
-
-    min_seq_len = max_seq_len/2
-
-    if verbose:
-        avg_seq_len = sum(s.shape[0] for s in sequences) / len(sequences)
-        print "Average Sequence Length: {}".format(avg_seq_len)
-        print "Max Sequence Length: {}".format(max_seq_len)
-        print "Number of sequences: {}".format(len(sequences))
-
-    copies = list()
-    for i in range(len(sequences)):
-        # ignore any sequences that are too short
-        # if sequences[i].shape[0] < min_seq_len:
-        #     continue
-        if sequences[i].shape[0] <= max_seq_len:
-            seq = sequences[i].copy()
-            seq.resize((max_seq_len, dims))
-            copies.append(seq)
-        elif sequences[i].shape[0] > max_seq_len:
-            # split up the sequences into max_seq_len each, except for when
-            # the split is less than min_seq_len
-            for j in range(sequences[i].shape[0] / max_seq_len + 1):
-                seq = sequences[i][j*max_seq_len:(j+1)*max_seq_len].copy()
-                seq.resize((max_seq_len, dims))
-                copies.append(seq)
-                break # TODO: change this line?
-                # if seq.shape[0] < min_seq_len:
-                #     continue
-
-    batch = np.dstack(copies)
-    # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
-    batch = np.swapaxes(batch, 1, 2)
-
-    return batch
-
 def dump_sequence_to_midi(sequence, output_filename, time_step, 
                           resolution, verbose=False):
     if verbose:
