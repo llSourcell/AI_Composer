@@ -52,7 +52,7 @@ if __name__ == '__main__':
         time_step = 120 
         # TODO: tweak below
         time_batch_len = 100
-        max_time_batches = -1 # use as many time batches as needed
+        max_time_batches = 8 # use as many time batches as needed
     else:
         raise Exception("unrecognized dataset")
 
@@ -199,8 +199,8 @@ if __name__ == '__main__':
         # start with the first chord
         # chord = midi_util.cmaj()
         state = sampling_model.initial_state.eval()
-        sampler = sampling.Sampler(min_prob = args.temp, verbose=True)
-        sampling_length = 40
+        sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
+        sampling_length = 200
 
         chord = data["train"]["data"][0][0, 0, :]
         seq = [chord]
@@ -229,7 +229,7 @@ if __name__ == '__main__':
                 feed_dict=feed)
             probs = np.reshape(probs, [input_dim])
             # chord = sampler.sample_notes_prob(probs, max_notes=8)
-            chord = sampler.sample_notes_static(probs)
+            chord = sampler.sample_notes_static(probs, num_notes=4)
             seq.append(chord)
 
         midi_util.dump_sequence_to_midi(seq, "best.midi", 

@@ -125,7 +125,14 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches):
 
     for dataset in ['train', 'test', 'valid']:
         sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
-        notes, targets, seq_lengths, unrolled_lengths = batch_data(sequences, time_batch_len, max_time_batches)
+
+        # SPECIAL CASE: test using the ENTIRE dataset
+        if dataset == 'test':
+            mtb = -1
+        else:
+            mtb = max_time_batches
+
+        notes, targets, seq_lengths, unrolled_lengths = batch_data(sequences, time_batch_len, mtb)
 
         data[dataset] = {
             "data": notes,

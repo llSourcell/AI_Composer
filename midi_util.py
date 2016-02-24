@@ -159,7 +159,7 @@ def gmaj():
     return chord_on((74, 79, 83))
 
 def i_vi_iv_v(n):
-    return  [[cmaj(), amin(), fmaj(), gmaj()] * n]
+    return [cmaj(), amin(), fmaj(), gmaj()] * n
 
 if __name__ == '__main__':
     # parse_midi_directory("data/JSBChorales/train", 120)
