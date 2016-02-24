@@ -156,86 +156,81 @@ if __name__ == '__main__':
 
 
     # # SAMPLING SESSION #
-    # TODO: rewrite
 
-    # with tf.Graph().as_default(), tf.Session() as session:
-    #
-    #     with tf.variable_scope(sample_model_name, reuse=None):
-    #         sampling_model = Model(dict(default_config, **{
-    #             "batch_size": 1,
-    #             "time_batch_len": 1
-    #         }))
-    #     with tf.variable_scope(sample_model_name, reuse=True):
-    #         test_model = Model(set_config(default_config, "test"))
-    #
-    #     saver = tf.train.Saver(tf.all_variables())
-    #     model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
-    #     saver.restore(session, model_path)
-    #
-    #     # Deterministic Testing
-    #     test_probs, test_loss, test_targets = session.run(
-    #         [test_model.probs, test_model.losses, test_model.targets_concat],
-    #         feed_dict = {
-    #             test_model.seq_input: data["test"]["data"],
-    #             test_model.seq_targets: data["test"]["targets"],
-    #             test_model.seq_input_lengths: data["test"]["seq_lengths"]
-    #     })
-    #     print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
-    #     predicted = (test_probs > 0.5).astype(np.float32)
-    #
-    #     true_positives = np.sum(np.multiply(predicted == test_targets, predicted))
-    #     false_positives = np.sum(np.multiply(predicted != test_targets, predicted))
-    #     false_negatives = np.sum(np.multiply(predicted != test_targets, test_targets))
-    #
-    #     total_predicted = np.sum(np.multiply(predicted, predicted))
-    #     total_targets = np.sum(np.multiply(test_targets, test_targets))
-    #     if total_predicted != 0 and total_targets != 0:
-    #         precision = float(true_positives) / float(total_predicted)
-    #         recall = float(true_positives) / float(total_targets)
-    #         print 'Precision: {}'.format(precision)
-    #         print 'Recall: {}'.format(recall)
-    #         print 'F1 Score: {}'.format(2 * (precision * recall) / (precision + recall))
-    #         accuracy = float(true_positives) / float(true_positives + false_positives + false_negatives)
-    #         print 'Accuracy: {}'.format(accuracy)
-    #     else:
-    #         print 'Total predicted and/or total targets == 0, there may be an error'
-    #
-    #
-    #     # start with the first chord
-    #     # chord = midi_util.cmaj()
-    #     state = sampling_model.initial_state.eval()
-    #     sampler = sampling.Sampler(min_prob = args.temp, verbose=True)
-    #     sampling_length = 200
-    #
-    #     chord = data["train"]["data"][0, 0, :]
-    #     seq = [chord]
-    #
-    #     if args.conditioning > 0:
-    #         for i in range(1, args.conditioning):
-    #             seq_input = np.reshape(chord, [1, 1, input_dim])
-    #             feed = {
-    #                 sampling_model.seq_input: seq_input,
-    #                 sampling_model.initial_state: state,
-    #                 sampling_model.seq_input_lengths: [1]
-    #             }
-    #             state = session.run(sampling_model.final_state, feed_dict=feed)
-    #             chord = data["train"]["data"][i, 0, :]
-    #             seq.append(chord)
-    #
-    #     for i in range(max(sampling_length - len(seq), 0)):
-    #         seq_input = np.reshape(chord, [1, 1, input_dim])
-    #         feed = {
-    #             sampling_model.seq_input: seq_input,
-    #             sampling_model.initial_state: state,
-    #             sampling_model.seq_input_lengths: [1]
-    #         }
-    #         [probs, state] = session.run(
-    #             [sampling_model.probs, sampling_model.final_state],
-    #             feed_dict=feed)
-    #         probs = np.reshape(probs, [input_dim])
-    #         chord = sampler.sample_notes_prob(probs, max_notes=8)
-    #         # chord = sampler.sample_notes_static(probs)
-    #         seq.append(chord)
-    #
-    #     midi_util.dump_sequence_to_midi(seq, "best.midi", 
-    #         time_step=time_step, resolution=resolution)
+    with tf.Graph().as_default(), tf.Session() as session:
+
+        with tf.variable_scope(sample_model_name, reuse=None):
+            sampling_model = Model(dict(default_config, **{
+                "batch_size": 1,
+                "time_batch_len": 1
+            }))
+        with tf.variable_scope(sample_model_name, reuse=True):
+            test_model = Model(set_config(default_config, "test"))
+
+        saver = tf.train.Saver(tf.all_variables())
+        model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
+        saver.restore(session, model_path)
+
+        # Deterministic Testing
+        test_loss = util.run_epoch(session, test_model, data["test"], training=False)
+        print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
+
+        # TODO: rewrite
+        # predicted = (test_probs > 0.5).astype(np.float32)
+        #
+        # true_positives = np.sum(np.multiply(predicted == test_targets, predicted))
+        # false_positives = np.sum(np.multiply(predicted != test_targets, predicted))
+        # false_negatives = np.sum(np.multiply(predicted != test_targets, test_targets))
+        #
+        # total_predicted = np.sum(np.multiply(predicted, predicted))
+        # total_targets = np.sum(np.multiply(test_targets, test_targets))
+        # if total_predicted != 0 and total_targets != 0:
+        #     precision = float(true_positives) / float(total_predicted)
+        #     recall = float(true_positives) / float(total_targets)
+        #     print 'Precision: {}'.format(precision)
+        #     print 'Recall: {}'.format(recall)
+        #     print 'F1 Score: {}'.format(2 * (precision * recall) / (precision + recall))
+        #     accuracy = float(true_positives) / float(true_positives + false_positives + false_negatives)
+        #     print 'Accuracy: {}'.format(accuracy)
+        # else:
+        #     print 'Total predicted and/or total targets == 0, there may be an error'
+
+
+        # start with the first chord
+        # chord = midi_util.cmaj()
+        state = sampling_model.initial_state.eval()
+        sampler = sampling.Sampler(min_prob = args.temp, verbose=True)
+        sampling_length = 40
+
+        chord = data["train"]["data"][0][0, 0, :]
+        seq = [chord]
+
+        if args.conditioning > 0:
+            for i in range(1, args.conditioning):
+                seq_input = np.reshape(chord, [1, 1, input_dim])
+                feed = {
+                    sampling_model.seq_input: seq_input,
+                    sampling_model.initial_state: state,
+                    sampling_model.seq_input_lengths: [1]
+                }
+                state = session.run(sampling_model.final_state, feed_dict=feed)
+                chord = data["train"]["data"][i, 0, :]
+                seq.append(chord)
+
+        for i in range(max(sampling_length - len(seq), 0)):
+            seq_input = np.reshape(chord, [1, 1, input_dim])
+            feed = {
+                sampling_model.seq_input: seq_input,
+                sampling_model.initial_state: state,
+                sampling_model.seq_input_lengths: [1]
+            }
+            [probs, state] = session.run(
+                [sampling_model.probs, sampling_model.final_state],
+                feed_dict=feed)
+            probs = np.reshape(probs, [input_dim])
+            # chord = sampler.sample_notes_prob(probs, max_notes=8)
+            chord = sampler.sample_notes_static(probs)
+            seq.append(chord)
+
+        midi_util.dump_sequence_to_midi(seq, "best.midi", 
+            time_step=time_step, resolution=resolution)

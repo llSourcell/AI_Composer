@@ -67,6 +67,7 @@ class Model(object):
                   tf.split(0, time_batch_len, self.seq_input)]
         targets = [tf.reshape(i, (batch_size, input_dim)) for i in 
                    tf.split(0, time_batch_len, self.seq_targets)]
+
         # rnn outputs a list of [batch_size x H] outputs
         outputs, self.final_state = rnn.rnn(cell, inputs, 
                                             initial_state=self.initial_state,
@@ -76,7 +77,7 @@ class Model(object):
         outputs_concat = tf.reshape(tf.concat(1, outputs), 
                                     [batch_size * time_batch_len, hidden_size]) 
         # reshape targets into (batch_size * time_batch_len) x D
-        self.targets_concat = tf.reshape(self.seq_targets,
+        self.targets_concat = tf.reshape(tf.concat(1, targets),
                                          [batch_size * time_batch_len, input_dim])
         # calculate outputs of (batch_size * time_batch_len) x D
         outputs = tf.matmul(outputs_concat, output_W) + output_b
@@ -84,9 +85,12 @@ class Model(object):
         # probabilities of each note
         self.probs = tf.sigmoid(outputs)
 
+        # loss_per_time_step = tf.reduce_sum(concat_losses, 1)
+        # assert tf.shape(loss_per_time_step) == [batch_size * time_batch_len]
+        # loss_per_seq = tf.reduce_sum(tf.reshape(loss_per_time_step, [batch_size, time_batch_len]), 1)
         concat_losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.targets_concat)
-        loss_per_time_step = tf.reduce_sum(concat_losses, 1)
-        loss_per_seq = tf.reduce_sum(tf.reshape(loss_per_time_step, [batch_size, time_batch_len]), 1)
+        losses = tf.reshape(concat_losses, [time_batch_len, batch_size, input_dim])
+        loss_per_seq = tf.reduce_sum(losses, [0, 2])
         seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
         self.loss = tf.reduce_sum(seq_length_norm) / batch_size
 

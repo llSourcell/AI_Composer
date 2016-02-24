@@ -19,7 +19,16 @@ def prepare_targets(data):
 
     return targets
 
-def parse_midi_directory(input_dir, time_step, time_batch_len=-1, max_time_batches=-1, verbose=False):
+def parse_midi_directory(input_dir, time_step):
+    files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
+              if os.path.isfile(os.path.join(input_dir, f)) ] 
+    sequences = [ \
+        midi_util.parse_midi_to_sequence(f, time_step=time_step) \
+        for f in files ]
+
+    return sequences
+
+def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False):
     """
     time_step: dataset-specific time step the MIDI should be broken up into (see parse_midi_to_sequence
                for more details
@@ -30,17 +39,12 @@ def parse_midi_directory(input_dir, time_step, time_batch_len=-1, max_time_batch
     """
     # TODO: only uses the first time_batch_len... change this to incorporate a state-saving rnn somehow...
 
-    files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
-              if os.path.isfile(os.path.join(input_dir, f)) ] 
-    sequences = [ \
-        midi_util.parse_midi_to_sequence(f, time_step=time_step) \
-        for f in files ]
     dims = sequences[0].shape[1]
-
-    longest_seq = max(s.shape[0] for s in sequences)
+    sequence_lens = [s.shape[0] for s in sequences]
+    longest_seq = max(sequence_lens)
 
     if verbose:
-        avg_seq_len = sum(s.shape[0] for s in sequences) / len(sequences)
+        avg_seq_len = sum(sequence_lens) / len(sequences)
         print "Average Sequence Length: {}".format(avg_seq_len)
         print "Max Sequence Length: {}".format(time_batch_len)
         print "Number of sequences: {}".format(len(sequences))
@@ -54,6 +58,7 @@ def parse_midi_directory(input_dir, time_step, time_batch_len=-1, max_time_batch
         num_time_batches = min(total_time_batches, max_time_batches)
         max_len = time_batch_len * num_time_batches
         sequences = filter(lambda x: len(x) <= max_len, sequences)
+        sequence_lens = [s.shape[0] for s in sequences]
     else:
         num_time_batches = total_time_batches
 
@@ -61,51 +66,77 @@ def parse_midi_directory(input_dir, time_step, time_batch_len=-1, max_time_batch
         print "Number of time batches: {}".format(num_time_batches)
         print "Number of sequences after filtering: {}".format(len(sequences))
 
-    time_batches = [list() for n in range(num_time_batches)]
-    time_batches_lens = [list() for n in range(num_time_batches)]
+    unsplit = list()
+    unrolled_lengths = list()
     for sequence in sequences:
-        batches = np.split(sequence, [j * time_batch_len for j in range(1, num_time_batches)])
-        assert len(batches) == len(time_batches) == num_time_batches
-        for t, batch in enumerate(batches):
-            copy = batch.copy()
-            batch_len = copy.shape[0]
-            copy.resize((time_batch_len, dims))
-            time_batches[t].append(copy)
-            time_batches_lens[t].append(batch_len)
+        unrolled_lengths.append(sequence.shape[0])
+        copy = sequence.copy()
+        copy.resize((time_batch_len * num_time_batches, dims)) 
+        unsplit.append(copy)
 
-    data = []
-    for batch in time_batches:
-        stacked = np.dstack(batch)
-        # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
-        swapped = np.swapaxes(stacked, 1, 2)
-        data.append(swapped)
+    stacked = np.dstack(unsplit)
+    # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
+    all_batches = np.swapaxes(stacked, 1, 2)
+    all_targets = prepare_targets(all_batches)
+
+    # sanity checks
+    assert all_batches.shape == all_targets.shape
+    assert all_batches.shape[1] == len(sequences)
+    assert all_batches.shape[2] == dims
+
+    batches = np.split(all_batches, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
+    targets = np.split(all_targets, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
+
+    assert len(batches) == len(targets) == num_time_batches
+
+    rolled_lengths = [list() for i in range(num_time_batches)]
+    for length in unrolled_lengths: 
+        for time_step in range(num_time_batches): 
+            step = time_step * time_batch_len
+            if length <= step:
+                rolled_lengths[time_step].append(0)
+            else:
+                rolled_lengths[time_step].append(min(time_batch_len, length - step))
+
+    # time_batches = [list() for n in range(num_time_batches)]
+    # time_batches_lens = [list() for n in range(num_time_batches)]
+    # for sequence in sequences:
+    #     batches = np.split(sequence, [j * time_batch_len for j in range(1, num_time_batches)])
+    #     assert len(batches) == len(time_batches) == num_time_batches
+    #     for t, batch in enumerate(batches):
+    #         copy = batch.copy()
+    #         batch_len = copy.shape[0]
+    #         copy.resize((time_batch_len, dims))
+    #         time_batches[t].append(copy)
+    #         time_batches_lens[t].append(batch_len)
+    #
+    # data = []
+    # for batch in time_batches:
+    #     stacked = np.dstack(batch)
+    #     swapped = np.swapaxes(stacked, 1, 2)
+    #     data.append(swapped)
 
     # return batch, np.array(sequence_lengths)
-    return data, time_batches_lens
+    return batches, targets, rolled_lengths, unrolled_lengths, 
 
 def load_data(data_dir, time_step, time_batch_len, max_time_batches):
 
     data = {}
 
     for dataset in ['train', 'test', 'valid']:
-        dataset_data, dataset_lens = \
-            parse_midi_directory(os.path.join(data_dir, dataset),
-                time_step, time_batch_len)
-
-        unrolled_seq_lengths = list()
-        for s_idx in range(len(dataset_lens[0])):
-            s_len = sum(dataset_lens[t][s_idx] for t in range(len(dataset_lens)))
-            unrolled_seq_lengths.append(float(s_len))
+        sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+        notes, targets, seq_lengths, unrolled_lengths = batch_data(sequences, time_batch_len, max_time_batches)
 
         data[dataset] = {
-            "data": dataset_data,
-            "targets": [prepare_targets(d) for d in dataset_data],
-            "time_batch_len": time_batch_len,
-            "seq_lengths": dataset_lens,
-            "unrolled_lengths": unrolled_seq_lengths
+            "data": notes,
+            "targets": targets,
+            "seq_lengths": seq_lengths,
+            "unrolled_lengths": unrolled_lengths,
+
+            "time_batch_len": time_batch_len
         }
 
-        data["input_dim"] = dataset_data[0].shape[2]
+        data["input_dim"] = notes[0].shape[2]
 
     return data
 
