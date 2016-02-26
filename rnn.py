@@ -26,7 +26,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=1e-2)
     parser.add_argument('--learning_rate_decay', type=float, default=0.90)
-    parser.add_argument('--early_stopping', type=float, default=0.15, 
+    parser.add_argument('--early_stopping', type=float, default=0.10, 
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
     parser.add_argument('--conditioning', type=int, default=-1)
@@ -45,21 +45,25 @@ if __name__ == '__main__':
         resolution = 100
         time_step = 120
         time_batch_len = -1 # use the longest seq length
-        max_time_batches = -1 # unroll to longest seq
+
+        data = util.load_data(data_dir, time_step, time_batch_len, -1)
     elif args.dataset == 'nottingham':
-        data_dir = 'data/Nottingham'
+        data_dir = 'data/nottingham.pickle'
         resolution = 480
         time_step = 120 
+
         # TODO: tweak below
         time_batch_len = 100
-        max_time_batches = 8 # use as many time batches as needed
+        max_time_batches = 8 
+
+        data = util.load_data(data_dir, time_step, 
+            time_batch_len, max_time_batches, nottingham=True)
     else:
         raise Exception("unrecognized dataset")
 
     model_suffix = '_' + args.dataset + '.model'
     charts_suffix = '_' + args.dataset + '.png'
 
-    data = util.load_data(data_dir, time_step, time_batch_len, max_time_batches)
     input_dim = data["input_dim"]
     print 'Finished loading data, input dim: {}'.format(input_dim)
 
@@ -228,8 +232,8 @@ if __name__ == '__main__':
                 [sampling_model.probs, sampling_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, [input_dim])
-            # chord = sampler.sample_notes_prob(probs, max_notes=8)
-            chord = sampler.sample_notes_static(probs, num_notes=4)
+            chord = sampler.sample_notes_prob(probs, max_notes=4)
+            # chord = sampler.sample_notes_static(probs, num_notes=4)
             seq.append(chord)
 
         midi_util.dump_sequence_to_midi(seq, "best.midi", 

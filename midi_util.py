@@ -1,10 +1,61 @@
 import sys, os
 import numpy as np
-from fractions import gcd
-
 import midi
 
 RANGE = 128
+
+def round_tick(tick, time_step):
+    return int(round(tick/float(time_step)) * time_step)
+
+def ingest_notes(track, verbose=False):
+    notes = { n: [] for n in range(RANGE) }
+    current_tick = 0
+
+    for msg in track:
+        # ignore all end of track events
+        if isinstance(msg, midi.EndOfTrackEvent):
+            continue
+
+        if msg.tick > 0: 
+            current_tick += msg.tick
+
+        # velocity of 0 is equivalent to note off, so treat as such
+        if isinstance(msg, midi.NoteOnEvent) and msg.get_velocity() != 0:
+            if len(notes[msg.get_pitch()]) > 0 and \
+               len(notes[msg.get_pitch()][-1]) != 2:
+                if verbose:
+                    print "Warning: double NoteOn encountered, deleting the first"
+                    print msg
+            else:
+                notes[msg.get_pitch()] += [[current_tick]]
+        elif isinstance(msg, midi.NoteOffEvent) or \
+            (isinstance(msg, midi.NoteOnEvent) and msg.get_velocity() == 0):
+            # sanity check: no notes end without being started
+            if len(notes[msg.get_pitch()][-1]) != 1:
+                if verbose:
+                    print "Warning: skipping NoteOff Event with no corresponding NoteOn"
+                    print msg
+            else: 
+                notes[msg.get_pitch()][-1] += [current_tick]
+
+    return notes, current_tick
+
+def round_notes(notes, track_ticks, time_step, R=None, O=None):
+    if not R:
+        R = RANGE
+    if not O:
+        O = 0
+
+    sequence = np.zeros((track_ticks/time_step, R))
+    for note in notes:
+        for (start, end) in notes[note]:
+            if end - start > time_step/2:
+                start_t = round_tick(start, time_step) / time_step
+                end_t = round_tick(end, time_step) / time_step
+                if start_t != end_t:
+                    sequence[start_t:end_t, note - O] = 1
+
+    return sequence
 
 def parse_midi_to_sequence(input_filename, time_step, verbose=False):
     sequence = []
@@ -16,15 +67,9 @@ def parse_midi_to_sequence(input_filename, time_step, verbose=False):
     if verbose:
         print "Track resolution: {}".format(pattern.resolution)
         print "Number of tracks: {}".format(len(pattern))
-
-    def round_tick(tick):
-        return int(round(tick/float(time_step)) * time_step)
-
-    if verbose:
         print "Time step: {}".format(time_step)
 
     # Track ingestion stage
-    midi_errors = 0
     notes = { n: [] for n in range(RANGE) }
     track_ticks = 0
     for track in pattern:
@@ -44,7 +89,6 @@ def parse_midi_to_sequence(input_filename, time_step, verbose=False):
                     if verbose:
                         print "Warning: double NoteOn encountered, deleting the first"
                         print msg
-                        midi_errors += 1
                 else:
                     notes[msg.get_pitch()] += [[current_tick]]
             elif isinstance(msg, midi.NoteOffEvent) or \
@@ -54,34 +98,16 @@ def parse_midi_to_sequence(input_filename, time_step, verbose=False):
                     if verbose:
                         print "Warning: skipping NoteOff Event with no corresponding NoteOn"
                         print msg
-                        midi_errors += 1
                 else: 
                     notes[msg.get_pitch()][-1] += [current_tick]
 
         track_ticks = max(current_tick, track_ticks)
 
-    if verbose:
-        print "Detected {} midi errors".format(midi_errors)
-
-    track_ticks = round_tick(track_ticks)
+    track_ticks = round_tick(track_ticks, time_step)
     if verbose:
         print "Track ticks (rounded): {} ({} time steps)".format(track_ticks, track_ticks/time_step)
 
-    sequence = np.zeros((track_ticks/time_step, RANGE))
-    
-    # Rounding stage
-    skipped_count = 0
-    for note in notes:
-        for (start, end) in notes[note]:
-            if end - start <= time_step/2:
-                skipped_count += 1
-            else:
-                start_t = round_tick(start) / time_step
-                end_t = round_tick(end) / time_step
-                if start_t == end_t:
-                    skipped_count += 1
-                else:
-                    sequence[start_t:end_t, note] = 1
+    sequence = round_notes(notes, track_ticks, time_step)
 
     return sequence
 
@@ -162,6 +188,4 @@ def i_vi_iv_v(n):
     return [cmaj(), amin(), fmaj(), gmaj()] * n
 
 if __name__ == '__main__':
-    # parse_midi_directory("data/JSBChorales/train", 120)
-    # parse_midi_directory("data/Nottingham/train", 120)
     pass

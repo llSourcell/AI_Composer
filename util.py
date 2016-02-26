@@ -2,6 +2,7 @@ import os
 import math
 import numpy as np
 import tensorflow as tf    
+import cPickle
 
 import midi_util
 
@@ -37,7 +38,6 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
     max_time_batches: the maximum amount of time batches. Every sequence greater than max_time_batches * 
                       time_batch_len is thrown away. If -1, there is no max amount of time batches
     """
-    # TODO: only uses the first time_batch_len... change this to incorporate a state-saving rnn somehow...
 
     dims = sequences[0].shape[1]
     sequence_lens = [s.shape[0] for s in sequences]
@@ -119,14 +119,21 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
     # return batch, np.array(sequence_lengths)
     return batches, targets, rolled_lengths, unrolled_lengths, 
 
-def load_data(data_dir, time_step, time_batch_len, max_time_batches):
+def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=False):
 
     data = {}
 
-    for dataset in ['train', 'test', 'valid']:
-        sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+    if nottingham:
+        with open(data_dir, 'r') as f:
+            pickle = cPickle.load(f)
 
-        # SPECIAL CASE: test using the ENTIRE dataset
+    for dataset in ['train', 'test', 'valid']:
+
+        if nottingham:
+            sequences = pickle[dataset]
+        else:
+            sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+
         if dataset == 'test':
             mtb = -1
         else:
@@ -139,7 +146,6 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches):
             "targets": targets,
             "seq_lengths": seq_lengths,
             "unrolled_lengths": unrolled_lengths,
-
             "time_batch_len": time_batch_len
         }
 

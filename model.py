@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow.models.rnn import rnn_cell
 from tensorflow.models.rnn import rnn, seq2seq
 
-import ipdb
+import midi_util
 
 class Model(object):
     """ RNN Model """
@@ -13,7 +13,7 @@ class Model(object):
 
         self.batch_size = batch_size = config["batch_size"]
         self.time_batch_len = time_batch_len = config["time_batch_len"]
-        input_dim = config["input_dim"]
+        self.input_dim = input_dim = config["input_dim"]
         hidden_size = config["hidden_size"]
         num_layers = config["num_layers"]
         dropout_prob = config["dropout_prob"]
@@ -85,22 +85,41 @@ class Model(object):
         # probabilities of each note
         self.probs = tf.sigmoid(outputs)
 
-        # loss_per_time_step = tf.reduce_sum(concat_losses, 1)
-        # assert tf.shape(loss_per_time_step) == [batch_size * time_batch_len]
-        # loss_per_seq = tf.reduce_sum(tf.reshape(loss_per_time_step, [batch_size, time_batch_len]), 1)
-        concat_losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.targets_concat)
-        losses = tf.reshape(concat_losses, [time_batch_len, batch_size, input_dim])
-        loss_per_seq = tf.reduce_sum(losses, [0, 2])
-        seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
-        self.loss = tf.reduce_sum(seq_length_norm) / batch_size
-
-        # ipdb.set_trace()
-        # self.train_step = tf.train.GradientDescentOptimizer(self.lr).minimize(self.loss)
+        self.loss = self.init_loss(outputs, self.targets_concat)
         self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
                             .minimize(self.loss)
+
+    def init_loss(self, outputs, targets):
+        concat_losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, targets) 
+        losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size, self.input_dim])
+        loss_per_seq = tf.reduce_sum(losses, [0, 2])
+        seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
+        return tf.reduce_sum(seq_length_norm) / self.batch_size
 
     def assign_lr(self, session, lr_value):
         session.run(tf.assign(self.lr, lr_value))
 
     def assign_lr_decay(self, session, lr_decay_value):
         session.run(tf.assign(self.lr_decay, lr_decay_value))
+
+
+class NottinghamModel(Model):
+
+    def init_loss(self, outputs, targets):
+
+        #TODO: add alpha and beta
+        melody_coeff = 1
+        harmony_coeff = 1
+
+        melody_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
+                outputs[:, :midi_util.NOTTINGHAM_MELODY_RANGE],
+                tf.argmax(targets[:, :midi_util.NOTTINGHAM_MELODY_RANGE], 1))
+        harmony_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
+                outputs[:, midi_util.NOTTINGHAM_MELODY_RANGE:],
+                tf.argmax(targets[:, midi_util.NOTTINGHAM_MELODY_RANGE:], 1))
+
+        concat_losses = tf.add(melody_coeff * melody_loss, harmony_coeff * harmony_loss)
+        losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size])
+        loss_per_seq = tf.reduce_sum(losses, [0])
+        seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
+        return tf.reduce_sum(seq_length_norm) / self.batch_size
