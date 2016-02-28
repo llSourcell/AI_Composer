@@ -98,25 +98,6 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
             else:
                 rolled_lengths[time_step].append(min(time_batch_len, length - step))
 
-    # time_batches = [list() for n in range(num_time_batches)]
-    # time_batches_lens = [list() for n in range(num_time_batches)]
-    # for sequence in sequences:
-    #     batches = np.split(sequence, [j * time_batch_len for j in range(1, num_time_batches)])
-    #     assert len(batches) == len(time_batches) == num_time_batches
-    #     for t, batch in enumerate(batches):
-    #         copy = batch.copy()
-    #         batch_len = copy.shape[0]
-    #         copy.resize((time_batch_len, dims))
-    #         time_batches[t].append(copy)
-    #         time_batches_lens[t].append(batch_len)
-    #
-    # data = []
-    # for batch in time_batches:
-    #     stacked = np.dstack(batch)
-    #     swapped = np.swapaxes(stacked, 1, 2)
-    #     data.append(swapped)
-
-    # return batch, np.array(sequence_lengths)
     return batches, targets, rolled_lengths, unrolled_lengths, 
 
 def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=False):
@@ -126,6 +107,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
     if nottingham:
         with open(data_dir, 'r') as f:
             pickle = cPickle.load(f)
+            data['chord_to_idx'] = pickle['chord_to_idx']
 
     for dataset in ['train', 'test', 'valid']:
 

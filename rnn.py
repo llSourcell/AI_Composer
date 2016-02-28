@@ -6,6 +6,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 import midi_util
+import nottingham_util
 import sampling
 import util
 from model import Model
@@ -176,8 +177,8 @@ if __name__ == '__main__':
         saver.restore(session, model_path)
 
         # Deterministic Testing
-        test_loss = util.run_epoch(session, test_model, data["test"], training=False)
-        print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
+        # test_loss = util.run_epoch(session, test_model, data["test"], training=False)
+        # print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
 
         # TODO: rewrite
         # predicted = (test_probs > 0.5).astype(np.float32)
@@ -199,11 +200,8 @@ if __name__ == '__main__':
         # else:
         #     print 'Total predicted and/or total targets == 0, there may be an error'
 
-
         # start with the first chord
-        # chord = midi_util.cmaj()
         state = sampling_model.initial_state.eval()
-        sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
         sampling_length = 200
 
         chord = data["train"]["data"][0][0, 0, :]
@@ -221,6 +219,13 @@ if __name__ == '__main__':
                 chord = data["train"]["data"][i, 0, :]
                 seq.append(chord)
 
+        if args.dataset == 'nottingham':
+            writer = nottingham_util.NottinghamMidiWriter(data['chord_to_idx'])
+            sampler = nottingham_util.NottinghamSampler(min_prob = args.temp, verbose=False)
+        else:
+            writer = midi_util.MidiWriter()
+            sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
+
         for i in range(max(sampling_length - len(seq), 0)):
             seq_input = np.reshape(chord, [1, 1, input_dim])
             feed = {
@@ -232,9 +237,8 @@ if __name__ == '__main__':
                 [sampling_model.probs, sampling_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, [input_dim])
-            chord = sampler.sample_notes_prob(probs, max_notes=4)
-            # chord = sampler.sample_notes_static(probs, num_notes=4)
+            chord = sampler.sample_notes(probs, num_notes=4)
             seq.append(chord)
 
-        midi_util.dump_sequence_to_midi(seq, "best.midi", 
+        writer.dump_sequence_to_midi(seq, "best.midi", 
             time_step=time_step, resolution=resolution)

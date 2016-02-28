@@ -6,11 +6,13 @@ import cPickle
 import midi_util
 import mingus
 import mingus.core.chords
+import sampling
 
 # predefined constants specific to the Nottingham dataset
 NOTTINGHAM_MELODY_MAX = 88
 NOTTINGHAM_MELODY_MIN = 55
 NOTTINGHAM_MELODY_RANGE = NOTTINGHAM_MELODY_MAX - NOTTINGHAM_MELODY_MIN + 1
+CHORD_BASE = 48
 CHORD_BLACKLIST = ['major third', 'minor third']
 NO_CHORD = 'NONE'
 SHARPS_TO_FLATS = {
@@ -44,6 +46,8 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottin
     chords = { c: i for c, i in chords.iteritems() if chords[c] >= chord_cutoff }
     chord_mapping = { c: i for i, c in enumerate(chords.keys()) }
     num_chords = len(chord_mapping)
+    store['chord_to_idx'] = chord_mapping
+    print chord_mapping
     print "Number of chords: {}".format(num_chords)
 
     def combine(melody, harmony):
@@ -136,6 +140,55 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
             harmonies.append(NO_CHORD)
 
     return melody_sequence, harmonies
+
+
+class NottinghamMidiWriter(midi_util.MidiWriter):
+
+    def __init__(self, chord_to_idx, verbose=False):
+        super(NottinghamMidiWriter, self).__init__(verbose)
+        self.idx_to_chord = { i: c for c, i in chord_to_idx.items() }
+        self.note_range = NOTTINGHAM_MELODY_RANGE + len(self.idx_to_chord)
+
+    def dereference_chord(self, idx):
+        if idx not in self.idx_to_chord:
+            raise Exception("No chord index found: {}".format(idx))
+        shorthand = self.idx_to_chord[idx]
+        if shorthand == NO_CHORD:
+            return []
+        # TODO: fix hack
+        if shorthand == 'DM11':
+            return []
+        chord = mingus.core.chords.from_shorthand(shorthand)
+        return [ CHORD_BASE + mingus.core.notes.note_to_int(n) for n in chord ]
+
+    def note_on(self, val, tick):
+        if val >= NOTTINGHAM_MELODY_RANGE:
+            notes = self.dereference_chord(val - NOTTINGHAM_MELODY_RANGE)
+        else:
+            notes = [NOTTINGHAM_MELODY_MIN + val]
+
+        for note in notes:
+            self.track.append(midi.NoteOnEvent(tick=tick, pitch=note, velocity=70))
+
+    def note_off(self, val, tick):
+        if val >= NOTTINGHAM_MELODY_RANGE:
+            notes = self.dereference_chord(val - NOTTINGHAM_MELODY_RANGE)
+        else:
+            notes = [NOTTINGHAM_MELODY_MIN + val]
+
+        for note in notes:
+            self.track.append(midi.NoteOffEvent(tick=tick, pitch=note))
+
+class NottinghamSampler(sampling.Sampler):
+
+    def sample_notes(self, probs, num_notes=2):
+        self.visualize_probs(probs)
+        top_melody = probs[:NOTTINGHAM_MELODY_RANGE].argsort()[-1]
+        top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1]
+        chord = np.zeros([len(probs)], dtype=np.int32)
+        chord[top_melody] = 1.0
+        chord[top_chord] = 1.0
+        return chord
 
 if __name__ == '__main__':
     prepare_nottingham_pickle(120)
