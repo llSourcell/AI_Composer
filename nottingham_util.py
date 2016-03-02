@@ -182,9 +182,9 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
 class NottinghamSampler(sampling.Sampler):
 
     def sample_notes(self, probs, num_notes=2):
-        self.visualize_probs(probs)
+        # self.visualize_probs(probs)
         top_melody = probs[:NOTTINGHAM_MELODY_RANGE].argsort()[-1]
-        top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1]
+        top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1] + NOTTINGHAM_MELODY_RANGE
         chord = np.zeros([len(probs)], dtype=np.int32)
         chord[top_melody] = 1.0
         chord[top_chord] = 1.0
