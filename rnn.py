@@ -9,7 +9,7 @@ import midi_util
 import nottingham_util
 import sampling
 import util
-from model import Model
+from model import Model, NottinghamModel
 
 ###############################################################################
 # TODO:
@@ -48,6 +48,7 @@ if __name__ == '__main__':
         time_batch_len = -1 # use the longest seq length
 
         data = util.load_data(data_dir, time_step, time_batch_len, -1)
+        model_class = Model
     elif args.dataset == 'nottingham':
         data_dir = 'data/nottingham.pickle'
         resolution = 480
@@ -59,6 +60,7 @@ if __name__ == '__main__':
 
         data = util.load_data(data_dir, time_step, 
             time_batch_len, max_time_batches, nottingham=True)
+        model_class = NottinghamModel
     else:
         raise Exception("unrecognized dataset")
 
@@ -104,10 +106,10 @@ if __name__ == '__main__':
 
                     with tf.Graph().as_default(), tf.Session() as session:
                         with tf.variable_scope(model_name, reuse=None):
-                            train_model = Model(set_config(config, "train"), 
-                                                training=True)
+                            train_model = model_class(set_config(config, "train"), 
+                                                      training=True)
                         with tf.variable_scope(model_name, reuse=True):
-                            valid_model = Model(set_config(config, "valid"))
+                            valid_model = model_class(set_config(config, "valid"))
 
                         saver = tf.train.Saver(tf.all_variables())
                         tf.initialize_all_variables().run()
@@ -165,12 +167,12 @@ if __name__ == '__main__':
     with tf.Graph().as_default(), tf.Session() as session:
 
         with tf.variable_scope(sample_model_name, reuse=None):
-            sampling_model = Model(dict(default_config, **{
+            sampling_model = model_class(dict(default_config, **{
                 "batch_size": 1,
                 "time_batch_len": 1
             }))
         with tf.variable_scope(sample_model_name, reuse=True):
-            test_model = Model(set_config(default_config, "test"))
+            test_model = model_class(set_config(default_config, "test"))
 
         saver = tf.train.Saver(tf.all_variables())
         model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
@@ -221,7 +223,7 @@ if __name__ == '__main__':
 
         if args.dataset == 'nottingham':
             writer = nottingham_util.NottinghamMidiWriter(data['chord_to_idx'])
-            sampler = nottingham_util.NottinghamSampler(min_prob = args.temp, verbose=False)
+            sampler = nottingham_util.NottinghamSampler(min_prob = args.temp, verbose=True)
         else:
             writer = midi_util.MidiWriter()
             sampler = sampling.Sampler(min_prob = args.temp, verbose=False)

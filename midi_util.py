@@ -171,7 +171,7 @@ class MidiWriter(object):
         # flush out notes
         tick = steps_passed * time_step
         for n in notes_on:
-            self.note_on(n, tick)
+            self.note_off(n, tick)
             tick = 0
             notes_on[n] = False
 

@@ -102,7 +102,8 @@ if __name__ == '__main__':
                 [sample_model.probs, sample_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, dims)
-            chord = sampler.sample_notes_static(probs, num_notes=3)
+            chord = sampler.sample_notes(probs, num_notes=3)
             seq.append(chord)
 
-        midi_util.dump_sequence_to_midi(seq, "trivial.midi", time_step=120, resolution=100)
+        writer = midi_util.MidiWriter(verbose=True) 
+        writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=120, resolution=100)

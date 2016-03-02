@@ -4,7 +4,7 @@ import tensorflow as tf
 from tensorflow.models.rnn import rnn_cell
 from tensorflow.models.rnn import rnn, seq2seq
 
-import midi_util
+import nottingham_util
 
 class Model(object):
     """ RNN Model """
@@ -112,11 +112,15 @@ class NottinghamModel(Model):
         harmony_coeff = 1
 
         melody_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-                outputs[:, :midi_util.NOTTINGHAM_MELODY_RANGE],
-                tf.argmax(targets[:, :midi_util.NOTTINGHAM_MELODY_RANGE], 1))
+                outputs[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE],
+                tf.argmax(targets[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE], 1))
         harmony_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-                outputs[:, midi_util.NOTTINGHAM_MELODY_RANGE:],
-                tf.argmax(targets[:, midi_util.NOTTINGHAM_MELODY_RANGE:], 1))
+                outputs[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:],
+                tf.argmax(targets[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:], 1))
+
+        # print outputs.get_shape()
+        # print outputs[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:].get_shape()
+        # print outputs[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE].get_shape()
 
         concat_losses = tf.add(melody_coeff * melody_loss, harmony_coeff * harmony_loss)
         losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size])

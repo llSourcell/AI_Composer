@@ -83,9 +83,6 @@ def parse_nottingham_directory(input_dir, time_step):
     # filter out the non 2-track MIDI's
     sequences = filter(lambda x: x != None, sequences)
 
-    # all_harmonies = [c for harm_seq in sequences for c in harm_seq ] 
-    # pprint.pprint([(x, all_harmonies.count(x)) for x in all_harmonies])
-    # pprint(len(all_harmonies))
     return sequences
 
 def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
@@ -134,6 +131,10 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
                           .format(notes_shift, input_filename, i)
                 harmonies.append(harmonies[-1])
             else:
+                # TODO: fix hack that removes 11ths
+                if chord[0].endswith("11"):
+                    chord[0] = chord[0][:-2]
+
                 if chord[0] not in CHORD_BLACKLIST:
                     harmonies.append(chord[0])
         else:
@@ -155,9 +156,6 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         shorthand = self.idx_to_chord[idx]
         if shorthand == NO_CHORD:
             return []
-        # TODO: fix hack
-        if shorthand == 'DM11':
-            return []
         chord = mingus.core.chords.from_shorthand(shorthand)
         return [ CHORD_BASE + mingus.core.notes.note_to_int(n) for n in chord ]
 
@@ -169,6 +167,7 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
 
         for note in notes:
             self.track.append(midi.NoteOnEvent(tick=tick, pitch=note, velocity=70))
+            tick = 0 # notes that come right after each other should have zero tick
 
     def note_off(self, val, tick):
         if val >= NOTTINGHAM_MELODY_RANGE:
@@ -178,6 +177,7 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
 
         for note in notes:
             self.track.append(midi.NoteOffEvent(tick=tick, pitch=note))
+            tick = 0
 
 class NottinghamSampler(sampling.Sampler):
 
@@ -191,5 +191,9 @@ class NottinghamSampler(sampling.Sampler):
         return chord
 
 if __name__ == '__main__':
-    prepare_nottingham_pickle(120)
-    pass
+    prepare_nottingham_pickle(10, filename="/tmp/nottingham.pickle")
+    with open("/tmp/nottingham.pickle", 'r') as f:
+        p = cPickle.load(f)
+    
+    writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
+    writer.dump_sequence_to_midi(p['train'][0], 'data_samples/test.midi', 10, 480)
