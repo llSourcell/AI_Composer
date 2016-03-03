@@ -2,6 +2,7 @@ import numpy as np
 import os
 import midi
 import cPickle
+from pprint import pprint
 
 import midi_util
 import mingus
@@ -11,9 +12,10 @@ import sampling
 # predefined constants specific to the Nottingham dataset
 NOTTINGHAM_MELODY_MAX = 88
 NOTTINGHAM_MELODY_MIN = 55
-NOTTINGHAM_MELODY_RANGE = NOTTINGHAM_MELODY_MAX - NOTTINGHAM_MELODY_MIN + 1
+# add one to the range for silence in melody
+NOTTINGHAM_MELODY_RANGE = NOTTINGHAM_MELODY_MAX - NOTTINGHAM_MELODY_MIN + 1 + 1
 CHORD_BASE = 48
-CHORD_BLACKLIST = ['major third', 'minor third']
+CHORD_BLACKLIST = ['major third', 'minor third', 'perfect fifth']
 NO_CHORD = 'NONE'
 SHARPS_TO_FLATS = {
     "A#": "Bb",
@@ -25,7 +27,7 @@ SHARPS_TO_FLATS = {
     "G#": "Ab",
 }
 
-def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottingham.pickle'):
+def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottingham.pickle', verbose=False):
 
     data = {}
     store = {}
@@ -33,7 +35,7 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottin
     
     for d in ["train", "test", "valid"]:
         print "Parsing {}...".format(d)
-        seqs = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step)
+        seqs = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=verbose)
         data[d] = seqs
         
         for _, harmony in seqs:
@@ -53,6 +55,17 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottin
     def combine(melody, harmony):
         full = np.zeros((melody.shape[0], NOTTINGHAM_MELODY_RANGE + num_chords))
 
+        assert melody.shape[0] == len(harmony)
+
+        # for all melody sequences that don't have any notes, add the empty melody marker (last one)
+        for i in range(melody.shape[0]):
+            if np.count_nonzero(melody[i, :]) == 0:
+                melody[i, NOTTINGHAM_MELODY_RANGE-1] = 1
+
+        # all melody encodings should now have exactly one 1
+        for i in range(melody.shape[0]):
+            assert np.count_nonzero(melody[i, :]) == 1
+
         # add all the melodies
         full[:, :melody.shape[1]] += melody
 
@@ -60,6 +73,10 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottin
                          for h in harmony ]
         harmony_idxs = [ NOTTINGHAM_MELODY_RANGE + h for h in harmony_idxs ]
         full[np.arange(len(harmony)), harmony_idxs] = 1
+
+        # all full encodings should have exactly two 1's
+        for i in range(full.shape[0]):
+            assert np.count_nonzero(full[i, :]) == 2
 
         return full
 
@@ -72,16 +89,22 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottin
 
     return True
 
-def parse_nottingham_directory(input_dir, time_step):
-    input_dir = "data/Nottingham/train"
+def parse_nottingham_directory(input_dir, time_step, verbose=False):
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
         parse_nottingham_to_sequence(f, time_step=time_step, verbose=False) \
         for f in files ]
+
+    if verbose:
+        print "Total sequences: {}".format(len(sequences))
+        # print "Filtering {} ({})".format(len([x == None for x in sequences]), input_dir)
     
     # filter out the non 2-track MIDI's
     sequences = filter(lambda x: x != None, sequences)
+
+    if verbose:
+        print "Total sequences left: {}".format(len(sequences))
 
     return sequences
 
@@ -113,6 +136,13 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
     
     melody_sequence = midi_util.round_notes(melody_notes, track_ticks, time_step, 
                                   R=NOTTINGHAM_MELODY_RANGE, O=NOTTINGHAM_MELODY_MIN)
+
+    for i in range(melody_sequence.shape[0]):
+        if np.count_nonzero(melody_sequence[i, :]) > 1:
+            if verbose:
+                print "Double note found: {}: {} ({})".format(i, np.nonzero(melody_sequence[i, :]), input_filename)
+            return None
+
     harmony_sequence = midi_util.round_notes(harmony_notes, track_ticks, time_step)
 
     harmonies = []
@@ -133,9 +163,13 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
             else:
                 # TODO: fix hack that removes 11ths
                 if chord[0].endswith("11"):
+                    if verbose:
+                        print "Encountered 11th note, removing 11th ({}}".format(input_filename)
                     chord[0] = chord[0][:-2]
 
-                if chord[0] not in CHORD_BLACKLIST:
+                if chord[0] in CHORD_BLACKLIST:
+                    harmonies.append(NO_CHORD)
+                else:
                     harmonies.append(chord[0])
         else:
             harmonies.append(NO_CHORD)
@@ -149,6 +183,7 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         super(NottinghamMidiWriter, self).__init__(verbose)
         self.idx_to_chord = { i: c for c, i in chord_to_idx.items() }
         self.note_range = NOTTINGHAM_MELODY_RANGE + len(self.idx_to_chord)
+        print self.idx_to_chord
 
     def dereference_chord(self, idx):
         if idx not in self.idx_to_chord:
@@ -165,9 +200,12 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         else:
             notes = [NOTTINGHAM_MELODY_MIN + val]
 
+        # print 'turning on {}'.format(notes)
         for note in notes:
             self.track.append(midi.NoteOnEvent(tick=tick, pitch=note, velocity=70))
             tick = 0 # notes that come right after each other should have zero tick
+
+        return tick
 
     def note_off(self, val, tick):
         if val >= NOTTINGHAM_MELODY_RANGE:
@@ -175,9 +213,12 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         else:
             notes = [NOTTINGHAM_MELODY_MIN + val]
 
+        # print 'turning off {}'.format(notes)
         for note in notes:
             self.track.append(midi.NoteOffEvent(tick=tick, pitch=note))
             tick = 0
+
+        return tick
 
 class NottinghamSampler(sampling.Sampler):
 
@@ -191,9 +232,12 @@ class NottinghamSampler(sampling.Sampler):
         return chord
 
 if __name__ == '__main__':
-    prepare_nottingham_pickle(10, filename="/tmp/nottingham.pickle")
+
+    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_1.mid", 120, verbose=True)
+    # pprint(harm)
+
+    # prepare_nottingham_pickle(120, filename="/tmp/nottingham.pickle")
     with open("/tmp/nottingham.pickle", 'r') as f:
         p = cPickle.load(f)
-    
     writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    writer.dump_sequence_to_midi(p['train'][0], 'data_samples/test.midi', 10, 480)
+    writer.dump_sequence_to_midi(p['train'][0], 'data_samples/test.midi', 120, 480)

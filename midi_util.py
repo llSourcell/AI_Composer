@@ -120,9 +120,11 @@ class MidiWriter(object):
 
     def note_off(self, val, tick):
         self.track.append(midi.NoteOffEvent(tick=tick, pitch=val))
+        return 0
 
     def note_on(self, val, tick):
         self.track.append(midi.NoteOnEvent(tick=tick, pitch=val, velocity=70))
+        return 0
 
     def dump_sequence_to_midi(self, sequence, output_filename, time_step, 
                               resolution):
@@ -141,39 +143,37 @@ class MidiWriter(object):
         if self.verbose:
             print "Total number of time steps: {}".format(time_steps)
 
-        steps_passed = 1
-        notes_on = { n: False for n in range(self.note_range) }
+        tick = time_step
+        self.notes_on = { n: False for n in range(self.note_range) }
+        # for seq_idx in range(188, 220):
         for seq_idx in range(time_steps):
             notes = np.nonzero(sequence[seq_idx, :])[0].tolist()
 
             # this tick will only be assigned to first NoteOn/NoteOff in
             # this time_step
-            tick = steps_passed * time_step
 
             # NoteOffEvents come first so they'll have the tick value
             # go through all notes that are currently on and see if any
             # turned off
-            for n in notes_on:
-                if notes_on[n] and n not in notes:
-                    self.note_off(n, tick)
-                    tick, steps_passed = 0, 0
-                    notes_on[n] = False
+            for n in self.notes_on:
+                if self.notes_on[n] and n not in notes:
+                    tick = self.note_off(n, tick)
+                    self.notes_on[n] = False
 
             # Turn on any notes that weren't previously on
             for note in notes:
-                if not notes_on[note]:
-                    self.note_on(note, tick)
-                    tick, steps_passed = 0, 0
-                    notes_on[note] = True
+                if not self.notes_on[note]:
+                    tick = self.note_on(note, tick)
+                    self.notes_on[note] = True
 
-            steps_passed += 1
+            tick += time_step
 
         # flush out notes
-        tick = steps_passed * time_step
-        for n in notes_on:
+        tick = time_step
+        for n in self.notes_on:
             self.note_off(n, tick)
             tick = 0
-            notes_on[n] = False
+            self.notes_on[n] = False
 
         pattern.append(self.track)
         midi.write_midifile(output_filename, pattern)
@@ -205,5 +205,5 @@ if __name__ == '__main__':
     resolution = 1024
 
     seq = parse_midi_to_sequence(test_name, time_step)
-    writer = MidiWriter() 
+    writer = MidiWriter(verbose=True) 
     writer.dump_sequence_to_midi(seq, 'data_samples/test.midi', time_step, resolution)
