@@ -80,12 +80,12 @@ class Model(object):
         self.targets_concat = tf.reshape(tf.concat(1, targets),
                                          [batch_size * time_batch_len, input_dim])
         # calculate outputs of (batch_size * time_batch_len) x D
-        outputs = tf.matmul(outputs_concat, output_W) + output_b
+        logits = tf.matmul(outputs_concat, output_W) + output_b
         
         # probabilities of each note
-        self.probs = tf.sigmoid(outputs)
+        self.probs = self.calculate_probs(logits)
 
-        self.loss = self.init_loss(outputs, self.targets_concat)
+        self.loss = self.init_loss(logits, self.targets_concat)
         self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
                             .minimize(self.loss)
 
@@ -95,6 +95,9 @@ class Model(object):
         loss_per_seq = tf.reduce_sum(losses, [0, 2])
         seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
         return tf.reduce_sum(seq_length_norm) / self.batch_size
+
+    def calculate_probs(self, logits):
+        return tf.sigmoid(logits)
 
     def assign_lr(self, session, lr_value):
         session.run(tf.assign(self.lr, lr_value))
@@ -118,12 +121,13 @@ class NottinghamModel(Model):
                 outputs[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:],
                 tf.argmax(targets[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:], 1))
 
-        # print outputs.get_shape()
-        # print outputs[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:].get_shape()
-        # print outputs[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE].get_shape()
-
         concat_losses = tf.add(melody_coeff * melody_loss, harmony_coeff * harmony_loss)
         losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size])
         loss_per_seq = tf.reduce_sum(losses, [0])
         seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
         return tf.reduce_sum(seq_length_norm) / self.batch_size
+
+    def calculate_probs(self, logits):
+        melody_softmax = tf.nn.softmax(logits[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE])
+        harmony_softmax = tf.nn.softmax(logits[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:])
+        return tf.concat(1, [melody_softmax, harmony_softmax]) 

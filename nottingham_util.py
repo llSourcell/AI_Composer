@@ -176,7 +176,6 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
 
     return melody_sequence, harmonies
 
-
 class NottinghamMidiWriter(midi_util.MidiWriter):
 
     def __init__(self, chord_to_idx, verbose=False):
@@ -198,7 +197,11 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         if val >= NOTTINGHAM_MELODY_RANGE:
             notes = self.dereference_chord(val - NOTTINGHAM_MELODY_RANGE)
         else:
-            notes = [NOTTINGHAM_MELODY_MIN + val]
+            # if note is the top of the range, then it stands for gap in melody
+            if val == NOTTINGHAM_MELODY_RANGE - 1:
+                notes = []
+            else:
+                notes = [NOTTINGHAM_MELODY_MIN + val]
 
         # print 'turning on {}'.format(notes)
         for note in notes:
@@ -220,12 +223,33 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
 
         return tick
 
-class NottinghamSampler(sampling.Sampler):
+class NottinghamSampler(object):
+
+    def __init__(self, chord_to_idx, verbose=False):
+        self.verbose = verbose 
+        self.idx_to_chord = { i: c for c, i in chord_to_idx.items() }
+
+    def visualize_probs(self, probs):
+        if not self.verbose:
+            return
+
+        melodies = sorted(list(enumerate(probs[:NOTTINGHAM_MELODY_RANGE])), 
+                     key=lambda x: x[1], reverse=True)[:4]
+        harmonies = sorted(list(enumerate(probs[NOTTINGHAM_MELODY_RANGE:])), 
+                     key=lambda x: x[1], reverse=True)[:4]
+        harmonies = [(self.idx_to_chord[i], j) for i, j in harmonies]
+        print 'Top Melody Notes: '
+        pprint(melodies)
+        print 'Top Harmony Notes: '
+        pprint(harmonies)
 
     def sample_notes(self, probs, num_notes=2):
-        # self.visualize_probs(probs)
+        self.visualize_probs(probs)
         top_melody = probs[:NOTTINGHAM_MELODY_RANGE].argsort()[-1]
         top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1] + NOTTINGHAM_MELODY_RANGE
+        # print "Melody sum: {}".format(np.sum(probs[:NOTTINGHAM_MELODY_RANGE]))
+        # print "Harmony sum: {}".format(np.sum(probs[NOTTINGHAM_MELODY_RANGE:]))
+
         chord = np.zeros([len(probs)], dtype=np.int32)
         chord[top_melody] = 1.0
         chord[top_chord] = 1.0

@@ -16,6 +16,7 @@ if __name__ == '__main__':
     
     max_repeats = 5
     batch_size = 100
+    time_batch_len = 3
 
     lr = 1e-3
     lr_decay = 0.9
@@ -52,8 +53,9 @@ if __name__ == '__main__':
                 encoding = np.zeros(dims)
                 encoding[note - nottingham_util.NOTTINGHAM_MELODY_MIN] = 1
                 melody_encoded.append(encoding)
-            melody_encoded.append(np.zeros(dims))
-
+            encoding = np.zeros(dims)
+            encoding[nottingham_util.NOTTINGHAM_MELODY_RANGE-1] = 1
+            melody_encoded.append(encoding)
 
         num_repeats = np.random.choice(np.arange(1, max_repeats))
         chord_seq = [np.add(a, b) for (a, b) in zip(chords_encoded, melody_encoded)]
@@ -64,8 +66,7 @@ if __name__ == '__main__':
     writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
     writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=480, resolution=480)
 
-    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = 4, max_time_batches = -1)
-    # notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = -1, max_time_batches = -1)
+    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
 
     assert len(notes) == len(targets) == len(rolled_lengths)
     assert notes[0].shape[1] == len(unrolled_lengths)
@@ -74,18 +75,10 @@ if __name__ == '__main__':
         num_notes = len(np.nonzero(notes[0][i, 0, :])[0])
         assert num_notes == 1 or num_notes == 2
 
-    assert np.array_equal(notes[0][1, 0, :], targets[0][0, 0, :])
-    assert np.array_equal(notes[0][2, 0, :], targets[0][1, 0, :])
-    assert np.array_equal(notes[0][3, 0, :], targets[0][2, 0, :])
-    assert np.array_equal(notes[1][0, 0, :], targets[0][3, 0, :])
-
-    # writer.dump_sequence_to_midi(notes[0][:, 0, :], "trivial_truth.midi", time_step=480, resolution=480)
-    # print notes
-    # print targets
-    # print rolled_lengths
-    # print unrolled_lengths
-    #
-    # sys.exit(0)
+    # assert np.array_equal(notes[0][1, 0, :], targets[0][0, 0, :])
+    # assert np.array_equal(notes[0][2, 0, :], targets[0][1, 0, :])
+    # assert np.array_equal(notes[0][3, 0, :], targets[0][2, 0, :])
+    # assert np.array_equal(notes[1][0, 0, :], targets[0][3, 0, :])
 
     full_data = {
         "data": notes,
@@ -100,7 +93,7 @@ if __name__ == '__main__':
         "num_layers": 1,
         "dropout_prob": 1.0,
         "batch_size": batch_size,
-        "time_batch_len": 4,
+        "time_batch_len": time_batch_len,
         "cell_type": "lstm"
     } 
 
@@ -126,14 +119,14 @@ if __name__ == '__main__':
         with tf.variable_scope("trivial", reuse=True):
             sample_model = NottinghamModel(dict(config, **{
                 "batch_size": 1,
-                "time_batch_len": 1
+                "time_batch_len": time_batch_len
             }), training=False)
 
         # start with the first chord
         chord = sequences[0][0]
         seq = [chord]
         state = sample_model.initial_state.eval()
-        sampler = nottingham_util.NottinghamSampler(verbose=True)
+        sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
 
         for i in range(8 * max_repeats * 2):
             chord = np.reshape(chord, [1, 1, dims])

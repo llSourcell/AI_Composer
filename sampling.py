@@ -17,7 +17,7 @@ class Sampler(object):
             return
         print 'Highest four probs: '
         pprint(sorted(list(enumerate(probs)), key=lambda x: x[1], 
-               reverse=True)[:10])
+               reverse=True)[:4])
 
     def sample_notes_prob(self, probs, max_notes=-1):
         """ Samples all notes that are over a certain probability"""

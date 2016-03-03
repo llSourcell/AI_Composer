@@ -169,11 +169,11 @@ class MidiWriter(object):
             tick += time_step
 
         # flush out notes
-        tick = time_step
         for n in self.notes_on:
-            self.note_off(n, tick)
-            tick = 0
-            self.notes_on[n] = False
+            if self.notes_on[n]:
+                self.note_off(n, tick)
+                tick = 0
+                self.notes_on[n] = False
 
         pattern.append(self.track)
         midi.write_midifile(output_filename, pattern)
