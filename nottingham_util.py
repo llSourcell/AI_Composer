@@ -32,11 +32,16 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename='data/nottingh
     data = {}
     store = {}
     chords = {}
+    max_seq = 0
+    seq_lens = []
     
     for d in ["train", "test", "valid"]:
         print "Parsing {}...".format(d)
         seqs = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=verbose)
         data[d] = seqs
+        lens = [len(s[1]) for s in seqs]
+        seq_lens += lens
+        max_seq = max(max_seq, max(lens))
         
         for _, harmony in seqs:
             for h in harmony:
@@ -45,12 +50,17 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename='data/nottingh
                 else:
                     chords[h] += 1
 
+    avg_seq = float(sum(seq_lens)) / len(seq_lens)
+
     chords = { c: i for c, i in chords.iteritems() if chords[c] >= chord_cutoff }
     chord_mapping = { c: i for i, c in enumerate(chords.keys()) }
     num_chords = len(chord_mapping)
     store['chord_to_idx'] = chord_mapping
-    print chord_mapping
-    print "Number of chords: {}".format(num_chords)
+    if verbose:
+        print chord_mapping
+        print "Number of chords: {}".format(num_chords)
+        print "Max Sequence length: {}".format(max_seq)
+        print "Avg Sequence length: {}".format(avg_seq)
 
     def combine(melody, harmony):
         full = np.zeros((melody.shape[0], NOTTINGHAM_MELODY_RANGE + num_chords))
@@ -195,7 +205,6 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         if shorthand == NO_CHORD:
             return []
         chord = mingus.core.chords.from_shorthand(shorthand)
-        print chord, shorthand
         return [ CHORD_BASE + mingus.core.notes.note_to_int(n) for n in chord ]
 
     def note_on(self, val, tick):
@@ -262,11 +271,11 @@ if __name__ == '__main__':
 
     # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_1.mid", 480, verbose=True)
     # pprint(zip(range(len(harm)), harm))
-    # prepare_nottingham_pickle(480)
+    prepare_nottingham_pickle(120, verbose=True)
 
-    time_step = 240
-    prepare_nottingham_pickle(time_step, filename="/tmp/nottingham.pickle")
-    with open("/tmp/nottingham.pickle", 'r') as f:
-        p = cPickle.load(f)
-    writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    writer.dump_sequence_to_midi(p['train'][3], 'data_samples/test.midi', time_step, 240)
+    # time_step = 240
+    # prepare_nottingham_pickle(time_step, filename="/tmp/nottingham.pickle")
+    # with open("/tmp/nottingham.pickle", 'r') as f:
+    #     p = cPickle.load(f)
+    # writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
+    # writer.dump_sequence_to_midi(p['train'][3], 'data_samples/test.midi', time_step, 240)

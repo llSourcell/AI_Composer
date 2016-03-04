@@ -53,11 +53,11 @@ if __name__ == '__main__':
     elif args.dataset == 'nottingham':
         data_dir = 'data/nottingham.pickle'
         resolution = 480
-        time_step = 480
+        time_step = 120
 
         # TODO: tweak below
-        time_batch_len = 100
-        max_time_batches = 10
+        time_batch_len = 500
+        max_time_batches = 3
 
         data = util.load_data(data_dir, time_step, 
             time_batch_len, max_time_batches, nottingham=True)
