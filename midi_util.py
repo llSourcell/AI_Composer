@@ -1,4 +1,5 @@
 import sys, os
+from collections import defaultdict
 import numpy as np
 import midi
 
@@ -48,13 +49,38 @@ def round_notes(notes, track_ticks, time_step, R=None, O=None):
         O = 0
 
     sequence = np.zeros((track_ticks/time_step, R))
+    disputed = { t: defaultdict(int) for t in range(track_ticks/time_step) }
     for note in notes:
         for (start, end) in notes[note]:
-            if end - start > time_step/2:
-                start_t = round_tick(start, time_step) / time_step
-                end_t = round_tick(end, time_step) / time_step
-                if start_t != end_t:
-                    sequence[start_t:end_t, note - O] = 1
+            start_t = round_tick(start, time_step) / time_step
+            end_t = round_tick(end, time_step) / time_step
+            # normal case where note is long enough
+            if end - start > time_step/2 and start_t != end_t:
+                sequence[start_t:end_t, note - O] = 1
+            # cases where note is within bounds of time step 
+            elif start > start_t * time_step:
+                disputed[start_t][note] += (end - start)
+            elif end <= end_t * time_step:
+                disputed[end_t-1][note] += (end - start)
+            # case where a note is on the border 
+            else:
+                before_border = start_t * time_step - start
+                if before_border > 0:
+                    disputed[start_t-1][note] += before_border
+                after_border = end - start_t * time_step
+                if after_border > 0 and end < track_ticks:
+                    disputed[start_t][note] += after_border
+
+    # solve disputed
+    for seq_idx in range(sequence.shape[0]):
+        if np.count_nonzero(sequence[seq_idx, :]) == 0 and len(disputed[seq_idx]) > 0:
+            # print seq_idx, disputed[seq_idx]
+            sorted_notes = sorted(disputed[seq_idx].items(),
+                                  key=lambda x: x[1])
+            max_val = max(x[1] for x in sorted_notes)
+            top_notes = filter(lambda x: x[1] >= max_val, sorted_notes)
+            for note, _ in top_notes:
+                sequence[seq_idx, note - O] = 1
 
     return sequence
 

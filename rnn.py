@@ -28,7 +28,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=1e-2)
     parser.add_argument('--learning_rate_decay', type=float, default=0.90)
-    parser.add_argument('--early_stopping', type=float, default=0.10, 
+    parser.add_argument('--early_stopping', type=float, default=0.05,
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
     parser.add_argument('--conditioning', type=int, default=-1)
@@ -53,11 +53,11 @@ if __name__ == '__main__':
     elif args.dataset == 'nottingham':
         data_dir = 'data/nottingham.pickle'
         resolution = 480
-        time_step = 120 
+        time_step = 480
 
         # TODO: tweak below
-        time_batch_len = 300
-        max_time_batches = 8 
+        time_batch_len = 100
+        max_time_batches = 10
 
         data = util.load_data(data_dir, time_step, 
             time_batch_len, max_time_batches, nottingham=True)

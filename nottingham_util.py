@@ -27,7 +27,7 @@ SHARPS_TO_FLATS = {
     "G#": "Ab",
 }
 
-def prepare_nottingham_pickle(time_step, chord_cutoff=100, filename='data/nottingham.pickle', verbose=False):
+def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename='data/nottingham.pickle', verbose=False):
 
     data = {}
     store = {}
@@ -150,6 +150,7 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
         notes = np.where(harmony_sequence[i] == 1)[0]
         if len(notes) > 0:
             notes_shift = [ mingus.core.notes.int_to_note(h%12) for h in notes]
+            # notes_shift = list(set(notes_shift)) # remove duplicates
             chord = mingus.core.chords.determine(notes_shift, shorthand=True)
             if len(chord) == 0:
                 # try flat combinations
@@ -159,7 +160,10 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
                 if verbose:
                     print "Could not determine chord: {} ({}, {}), defaulting to last steps chord" \
                           .format(notes_shift, input_filename, i)
-                harmonies.append(harmonies[-1])
+                if len(harmonies) > 0:
+                    harmonies.append(harmonies[-1])
+                else:
+                    harmonies.append(NO_CHORD)
             else:
                 # TODO: fix hack that removes 11ths
                 if chord[0].endswith("11"):
@@ -191,6 +195,7 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         if shorthand == NO_CHORD:
             return []
         chord = mingus.core.chords.from_shorthand(shorthand)
+        print chord, shorthand
         return [ CHORD_BASE + mingus.core.notes.note_to_int(n) for n in chord ]
 
     def note_on(self, val, tick):
@@ -247,8 +252,6 @@ class NottinghamSampler(object):
         self.visualize_probs(probs)
         top_melody = probs[:NOTTINGHAM_MELODY_RANGE].argsort()[-1]
         top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1] + NOTTINGHAM_MELODY_RANGE
-        # print "Melody sum: {}".format(np.sum(probs[:NOTTINGHAM_MELODY_RANGE]))
-        # print "Harmony sum: {}".format(np.sum(probs[NOTTINGHAM_MELODY_RANGE:]))
 
         chord = np.zeros([len(probs)], dtype=np.int32)
         chord[top_melody] = 1.0
@@ -257,11 +260,13 @@ class NottinghamSampler(object):
 
 if __name__ == '__main__':
 
-    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_1.mid", 120, verbose=True)
-    # pprint(harm)
+    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_1.mid", 480, verbose=True)
+    # pprint(zip(range(len(harm)), harm))
+    # prepare_nottingham_pickle(480)
 
-    # prepare_nottingham_pickle(120, filename="/tmp/nottingham.pickle")
+    time_step = 240
+    prepare_nottingham_pickle(time_step, filename="/tmp/nottingham.pickle")
     with open("/tmp/nottingham.pickle", 'r') as f:
         p = cPickle.load(f)
     writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    writer.dump_sequence_to_midi(p['train'][0], 'data_samples/test.midi', 120, 480)
+    writer.dump_sequence_to_midi(p['train'][3], 'data_samples/test.midi', time_step, 240)

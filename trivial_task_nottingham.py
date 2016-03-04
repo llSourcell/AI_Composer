@@ -11,12 +11,15 @@ import sampling
 import util
 from model import NottinghamModel
 
+TICKS_PER_QUARTER = 480
+
 if __name__ == '__main__':
     np.random.seed(1)      
     
     max_repeats = 5
     batch_size = 100
-    time_batch_len = 3
+    time_batch_len = 4
+    time_step = 120
 
     lr = 1e-3
     lr_decay = 0.9
@@ -36,10 +39,12 @@ if __name__ == '__main__':
     sequences = list()
     for i in range(batch_size):
 
+        note_length = (TICKS_PER_QUARTER/time_step)
+
         # chords follow a 0, 1, 2, 3 pattern
         chords = list()
         for chord in [0, 1, 2, 3]:
-            chords += [chord] * 4
+            chords += [chord] * note_length * 4
         chords_encoded = list()
         for chord in chords:
             encoding = np.zeros(dims)
@@ -52,10 +57,10 @@ if __name__ == '__main__':
             for note in chord:
                 encoding = np.zeros(dims)
                 encoding[note - nottingham_util.NOTTINGHAM_MELODY_MIN] = 1
-                melody_encoded.append(encoding)
+                melody_encoded += [encoding] * note_length
             encoding = np.zeros(dims)
             encoding[nottingham_util.NOTTINGHAM_MELODY_RANGE-1] = 1
-            melody_encoded.append(encoding)
+            melody_encoded += [encoding] * note_length
 
         num_repeats = np.random.choice(np.arange(1, max_repeats))
         chord_seq = [np.add(a, b) for (a, b) in zip(chords_encoded, melody_encoded)]
@@ -64,7 +69,7 @@ if __name__ == '__main__':
         sequences += [full_seq.copy()]
 
     writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
-    writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=480, resolution=480)
+    writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=time_step, resolution=TICKS_PER_QUARTER)
 
     notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
 
@@ -119,7 +124,7 @@ if __name__ == '__main__':
         with tf.variable_scope("trivial", reuse=True):
             sample_model = NottinghamModel(dict(config, **{
                 "batch_size": 1,
-                "time_batch_len": time_batch_len
+                "time_batch_len": 1
             }), training=False)
 
         # start with the first chord
@@ -128,7 +133,7 @@ if __name__ == '__main__':
         state = sample_model.initial_state.eval()
         sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
 
-        for i in range(8 * max_repeats * 2):
+        for i in range(note_length * 16 * max_repeats * 2):
             chord = np.reshape(chord, [1, 1, dims])
             feed = {
                 sample_model.seq_input: chord,
@@ -143,4 +148,4 @@ if __name__ == '__main__':
             seq.append(chord)
 
         writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
-        writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=480, resolution=480)
+        writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=time_step, resolution=TICKS_PER_QUARTER)
