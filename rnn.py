@@ -1,6 +1,7 @@
 import os, sys
 import argparse
  
+import cPickle
 import numpy as np
 import tensorflow as tf    
 import matplotlib.pyplot as plt
@@ -13,9 +14,6 @@ from model import Model, NottinghamModel
 
 ###############################################################################
 # TODO:
-# 1. figure out a way to train different sequence lengths
-# 2. change test/accuracy code to reflect loss over the entire sequence instead
-#    of a fixed length of it
 ###############################################################################
 
 if __name__ == '__main__':
@@ -24,6 +22,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Music RNN')
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
+    parser.add_argument('--sample', action='store_true', default=False)
     parser.add_argument('--temp', type=float, default=0.2)
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=1e-2)
@@ -51,16 +50,18 @@ if __name__ == '__main__':
         data = util.load_data(data_dir, time_step, time_batch_len, -1)
         model_class = Model
     elif args.dataset == 'nottingham':
-        data_dir = 'data/nottingham.pickle'
         resolution = 480
         time_step = 120
-
         # TODO: tweak below
-        time_batch_len = 500
-        max_time_batches = 3
+        time_batch_len = 100
+        max_time_batches = 10
 
-        data = util.load_data(data_dir, time_step, 
-            time_batch_len, max_time_batches, nottingham=True)
+        with open(nottingham_util.PICKLE_LOC, 'r') as f:
+            pickle = cPickle.load(f)
+            chord_to_idx = pickle['chord_to_idx']
+
+        data = util.load_data('', time_step, 
+            time_batch_len, max_time_batches, nottingham=pickle)
         model_class = NottinghamModel
     else:
         raise Exception("unrecognized dataset")
@@ -92,8 +93,8 @@ if __name__ == '__main__':
         best_valid_loss = None
         best_model_name = None
 
-        for num_layers in [1]:
-            for hidden_size in [100]:
+        for num_layers in [1, 2]:
+            for hidden_size in [100, 150]:
                 for learning_rate in [1e-2]:
 
                     model_name = "nl_" + str(num_layers) + \
@@ -130,10 +131,11 @@ if __name__ == '__main__':
                                 print 'Epoch: {}, Train Loss: {}, Valid Loss: {}'.format(i, loss, valid_loss)
 
                                 # early stop if generalization loss is worst than args.early_stopping
-                                early_stop_best_loss = min(early_stop_best_loss, valid_loss) if early_stop_best_loss != None else valid_loss
-                                if ((valid_loss / early_stop_best_loss) - 1.0) > args.early_stopping:
-                                    print 'Early stopping criteria reached: {}'.format(args.early_stopping)
-                                    break
+                                if args.early_stopping > 0:
+                                    early_stop_best_loss = min(early_stop_best_loss, valid_loss) if early_stop_best_loss != None else valid_loss
+                                    if ((valid_loss / early_stop_best_loss) - 1.0) > args.early_stopping:
+                                        print 'Early stopping criteria reached: {}'.format(args.early_stopping)
+                                        break
 
                         saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
                         # print "Saved model"
@@ -165,17 +167,22 @@ if __name__ == '__main__':
 
     # # SAMPLING SESSION #
 
+    if not args.test and not args.sample:
+        sys.exit(0)
+
     with tf.Graph().as_default(), tf.Session() as session:
 
-        if args.test:
-            with tf.variable_scope(sample_model_name, reuse=True):
-                test_model = model_class(set_config(default_config, "test"))
+        if args.sample: 
+            with tf.variable_scope(sample_model_name, reuse=None):
+                sampling_model = model_class(dict(default_config, **{
+                    "batch_size": 1,
+                    "time_batch_len": 1
+                }))
 
-        with tf.variable_scope(sample_model_name, reuse=None):
-            sampling_model = model_class(dict(default_config, **{
-                "batch_size": 1,
-                "time_batch_len": 1
-            }))
+        if args.test:
+            test_config = set_config(default_config, "test")
+            with tf.variable_scope(sample_model_name, reuse=True if args.sample else None):
+                test_model = model_class(test_config)
 
         saver = tf.train.Saver(tf.all_variables())
         model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
@@ -183,8 +190,11 @@ if __name__ == '__main__':
 
         # Deterministic Testing
         if args.test: 
-            test_loss = util.run_epoch(session, test_model, data["test"], training=False)
+            test_loss, test_probs = util.run_epoch(session, test_model, data["test"], 
+                                                   training=False, testing=True)
             print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
+
+            nottingham_util.accuracy(test_probs, pickle['test'], test_config)
 
             # TODO: rewrite
             # predicted = (test_probs > 0.5).astype(np.float32)
@@ -207,44 +217,45 @@ if __name__ == '__main__':
             #     print 'Total predicted and/or total targets == 0, there may be an error'
 
         # start with the first chord
-        state = sampling_model.initial_state.eval()
-        sampling_length = args.sample_length
+        if args.sample:
+            state = sampling_model.initial_state.eval()
+            sampling_length = args.sample_length
 
-        chord = data["train"]["data"][0][0, 0, :]
-        seq = [chord]
+            chord = data["train"]["data"][0][0, 0, :]
+            seq = [chord]
 
-        if args.conditioning > 0:
-            for i in range(1, args.conditioning):
+            if args.conditioning > 0:
+                for i in range(1, args.conditioning):
+                    seq_input = np.reshape(chord, [1, 1, input_dim])
+                    feed = {
+                        sampling_model.seq_input: seq_input,
+                        sampling_model.initial_state: state,
+                        sampling_model.seq_input_lengths: [1]
+                    }
+                    state = session.run(sampling_model.final_state, feed_dict=feed)
+                    chord = data["train"]["data"][0][i, 0, :]
+                    seq.append(chord)
+
+            if args.dataset == 'nottingham':
+                writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
+                sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
+            else:
+                writer = midi_util.MidiWriter()
+                sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
+
+            for i in range(max(sampling_length - len(seq), 0)):
                 seq_input = np.reshape(chord, [1, 1, input_dim])
                 feed = {
                     sampling_model.seq_input: seq_input,
                     sampling_model.initial_state: state,
                     sampling_model.seq_input_lengths: [1]
                 }
-                state = session.run(sampling_model.final_state, feed_dict=feed)
-                chord = data["train"]["data"][0][i, 0, :]
+                [probs, state] = session.run(
+                    [sampling_model.probs, sampling_model.final_state],
+                    feed_dict=feed)
+                probs = np.reshape(probs, [input_dim])
+                chord = sampler.sample_notes(probs)
                 seq.append(chord)
 
-        if args.dataset == 'nottingham':
-            writer = nottingham_util.NottinghamMidiWriter(data['chord_to_idx'], verbose=True)
-            sampler = nottingham_util.NottinghamSampler(data['chord_to_idx'], verbose=True)
-        else:
-            writer = midi_util.MidiWriter()
-            sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
-
-        for i in range(max(sampling_length - len(seq), 0)):
-            seq_input = np.reshape(chord, [1, 1, input_dim])
-            feed = {
-                sampling_model.seq_input: seq_input,
-                sampling_model.initial_state: state,
-                sampling_model.seq_input_lengths: [1]
-            }
-            [probs, state] = session.run(
-                [sampling_model.probs, sampling_model.final_state],
-                feed_dict=feed)
-            probs = np.reshape(probs, [input_dim])
-            chord = sampler.sample_notes(probs)
-            seq.append(chord)
-
-        writer.dump_sequence_to_midi(seq, "best.midi", 
-            time_step=time_step, resolution=resolution)
+            writer.dump_sequence_to_midi(seq, "best.midi", 
+                time_step=time_step, resolution=resolution)

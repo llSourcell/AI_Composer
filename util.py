@@ -100,19 +100,18 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
 
     return batches, targets, rolled_lengths, unrolled_lengths, 
 
-def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=False):
+def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=None):
 
     data = {}
 
     if nottingham:
-        with open(data_dir, 'r') as f:
-            pickle = cPickle.load(f)
-            data['chord_to_idx'] = pickle['chord_to_idx']
+        pickle = nottingham
 
     for dataset in ['train', 'test', 'valid']:
 
         if nottingham:
             sequences = pickle[dataset]
+            # sequences = [pickle[dataset][0]]
         else:
             sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
 
@@ -135,7 +134,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
     return data
 
-def run_epoch(session, model, data, training=False):
+def run_epoch(session, model, data, training=False, testing=False):
 
     # change each data into a batch of data if it isn't already
     for n in ["data", "targets", "seq_lengths"]:
@@ -143,6 +142,9 @@ def run_epoch(session, model, data, training=False):
             data[n] = [ data[n] ]
 
     target_tensors = [model.loss, model.final_state]
+    if testing:
+        target_tensors.append(model.probs)
+        prob_vals = list()
     if training:
         target_tensors.append(model.train_step)
 
@@ -161,5 +163,10 @@ def run_epoch(session, model, data, training=False):
 
         loss += results[0]
         state = results[1]
+        if testing:
+            prob_vals.append(results[2])
 
-    return loss
+    if testing:
+        return [loss, prob_vals]
+    else:
+        return loss

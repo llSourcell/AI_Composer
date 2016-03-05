@@ -9,6 +9,8 @@ import mingus
 import mingus.core.chords
 import sampling
 
+# location of nottingham sequences
+PICKLE_LOC = 'data/nottingham.pickle'
 # predefined constants specific to the Nottingham dataset
 NOTTINGHAM_MELODY_MAX = 88
 NOTTINGHAM_MELODY_MIN = 55
@@ -27,7 +29,7 @@ SHARPS_TO_FLATS = {
     "G#": "Ab",
 }
 
-def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename='data/nottingham.pickle', verbose=False):
+def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, verbose=False):
 
     data = {}
     store = {}
@@ -266,6 +268,55 @@ class NottinghamSampler(object):
         chord[top_melody] = 1.0
         chord[top_chord] = 1.0
         return chord
+
+def accuracy(raw_probs, test_sequences, config):
+    
+    batch_size = config["batch_size"]
+    time_batch_len = config["time_batch_len"]
+    input_dim = config["input_dim"]
+
+    # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
+    batches = list()
+    for time_batch in raw_probs:
+        batches.append(np.reshape(time_batch, [time_batch_len, batch_size, input_dim]))
+    test_probs = np.concatenate(batches, axis=0)
+
+    total = 0
+    melody_correct, harmony_correct = 0, 0
+    for seq_idx, seq in enumerate(test_sequences):
+        for step_idx in range(seq.shape[0]):
+            if step_idx == 0:
+                continue
+
+            melody = test_probs[step_idx-1, seq_idx, :NOTTINGHAM_MELODY_RANGE].argsort()[-1]
+            harmony = test_probs[step_idx-1, seq_idx, NOTTINGHAM_MELODY_RANGE:].argsort()[-1]
+
+            melody_target = np.nonzero(seq[step_idx, :NOTTINGHAM_MELODY_RANGE])[0] 
+            assert len(melody_target) == 1
+            if melody_target == melody:
+                melody_correct += 1
+
+            harmony_target = np.nonzero(seq[step_idx, NOTTINGHAM_MELODY_RANGE:])[0] 
+            assert len(harmony_target) == 1
+            if harmony_target == harmony:
+                harmony_correct += 1
+
+            total += 2
+
+    print config
+    print test_probs.shape
+    print len(test_sequences)
+
+    print 'Total Notes: {}'.format(total)
+    print 'Melody Accuracy: {} ({}/{})'.format(float(melody_correct) / float(total) / 2.0,
+                                               melody_correct,
+                                               total / 2)
+    print 'Harmony Accuracy: {} ({}/{})'.format(float(harmony_correct) / float(total) / 2.0,
+                                                harmony_correct,
+                                                total / 2)
+    print 'Total Accuracy: {} ({}/{})'.format(float(melody_correct + harmony_correct) / float(total),
+                                              melody_correct + harmony_correct,
+                                              total)
 
 if __name__ == '__main__':
 

@@ -19,7 +19,7 @@ class Model(object):
         dropout_prob = config["dropout_prob"]
         cell_type = config["cell_type"]
 
-        # print config
+        print config
 
         if (dropout_prob <= 0.0 or dropout_prob > 1.0):
             raise Exception("Invalid dropout probability: {}".format(dropout_prob))
@@ -50,17 +50,6 @@ class Model(object):
             tf.placeholder(tf.float32, [batch_size])
 
         self.initial_state = cell.zero_state(batch_size, tf.float32)
-
-        # TODO: change to use dynamic_rnn?
-        # rnn outputs max_seq_len x batch_size x hidden_size
-        # outputs, self.final_state = \
-        #     rnn.dynamic_rnn(cell, self.seq_input, 
-        #                     initial_state=self.initial_state,
-        #                     sequence_length=self.seq_input_lengths,
-        #                     time_major=False,
-        #                     dtype=tf.float32)
-        # outputs_concat = tf.reshape(outputs,
-        #                             [batch_size * time_batch_len, hidden_size]) 
 
         # make inputs/targets a list of [batch_size x D] time-steps
         inputs = [tf.reshape(i, (batch_size, input_dim)) for i in 
