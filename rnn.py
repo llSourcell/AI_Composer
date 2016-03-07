@@ -17,12 +17,12 @@ from model import Model, NottinghamModel
 ###############################################################################
 
 if __name__ == '__main__':
-    np.random.seed(1)      
+    np.random.seed()      
 
     parser = argparse.ArgumentParser(description='Music RNN')
+    parser.add_argument('--softmax', action='store_true', default=False)
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--sample', action='store_true', default=False)
     parser.add_argument('--temp', type=float, default=0.2)
     parser.add_argument('--num_epochs', type=int, default=1500)
     parser.add_argument('--learning_rate', type=float, default=1e-2)
@@ -30,6 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('--early_stopping', type=float, default=0.05,
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
+    parser.add_argument('--sample_melody', action='store_true', default=False)
+    parser.add_argument('--sample_harmony', action='store_true', default=False)
     parser.add_argument('--conditioning', type=int, default=-1)
 
     parser.add_argument('--model_name', type=str, default='default_model')
@@ -41,18 +43,9 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    if args.dataset == 'bach':
-        data_dir = 'data/JSBChorales'
-        resolution = 100
-        time_step = 120
-        time_batch_len = -1 # use the longest seq length
-
-        data = util.load_data(data_dir, time_step, time_batch_len, -1)
-        model_class = Model
-    elif args.dataset == 'nottingham':
+    if args.softmax:
         resolution = 480
         time_step = 120
-        # TODO: tweak below
         time_batch_len = 100
         max_time_batches = 10
 
@@ -63,11 +56,31 @@ if __name__ == '__main__':
         data = util.load_data('', time_step, 
             time_batch_len, max_time_batches, nottingham=pickle)
         model_class = NottinghamModel
-    else:
-        raise Exception("unrecognized dataset")
 
-    model_suffix = '_' + args.dataset + '.model'
-    charts_suffix = '_' + args.dataset + '.png'
+        #TODO: change to distinguish from regular nottingham model
+        model_suffix = '_nottingham.model'
+        charts_suffix = '_nottingham.png'
+    else:
+        if args.dataset == 'bach':
+            data_dir = 'data/JSBChorales'
+            resolution = 100
+            time_step = 120
+            time_batch_len = -1 # use the longest seq length
+            max_time_batches = -1 
+        elif args.dataset == 'nottingham':
+            data_dir = 'data/Nottingham'
+            resolution = 480
+            time_step = 120
+            time_batch_len = 100
+            max_time_batches = 10
+        else:
+            raise Exception("unrecognized dataset")
+
+        data = util.load_data(data_dir, time_step, time_batch_len, max_time_batches)
+        model_class = Model
+
+        model_suffix = '_' + args.dataset + '.model'
+        charts_suffix = '_' + args.dataset + '.png'
 
     input_dim = data["input_dim"]
     print 'Finished loading data, input dim: {}'.format(input_dim)
@@ -93,8 +106,8 @@ if __name__ == '__main__':
         best_valid_loss = None
         best_model_name = None
 
-        for num_layers in [1, 2]:
-            for hidden_size in [100, 150]:
+        for num_layers in [1, 2, 3]:
+            for hidden_size in [50, 100, 200]:
                 for learning_rate in [1e-2]:
 
                     model_name = "nl_" + str(num_layers) + \
@@ -167,12 +180,14 @@ if __name__ == '__main__':
 
     # # SAMPLING SESSION #
 
-    if not args.test and not args.sample:
+    do_sampling = args.sample_length > 0
+
+    if not args.test and not do_sampling:
         sys.exit(0)
 
     with tf.Graph().as_default(), tf.Session() as session:
 
-        if args.sample: 
+        if do_sampling: 
             with tf.variable_scope(sample_model_name, reuse=None):
                 sampling_model = model_class(dict(default_config, **{
                     "batch_size": 1,
@@ -181,7 +196,7 @@ if __name__ == '__main__':
 
         if args.test:
             test_config = set_config(default_config, "test")
-            with tf.variable_scope(sample_model_name, reuse=True if args.sample else None):
+            with tf.variable_scope(sample_model_name, reuse=True if do_sampling else None):
                 test_model = model_class(test_config)
 
         saver = tf.train.Saver(tf.all_variables())
@@ -217,11 +232,22 @@ if __name__ == '__main__':
             #     print 'Total predicted and/or total targets == 0, there may be an error'
 
         # start with the first chord
-        if args.sample:
+        if do_sampling:
             state = sampling_model.initial_state.eval()
-            sampling_length = args.sample_length
+            sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[0]))
+            sampling_length = data["test"]["unrolled_lengths"][sample_index]
+            print "Sampling File: {} ({} time steps)".format(
+                data["test"]["metadata"][sample_index]['name'], sampling_length)
 
-            chord = data["train"]["data"][0][0, 0, :]
+            chord = data["test"]["data"][0][0, sample_index, :]
+
+            # if args.softmax:
+            #     chord_idx = nottingham_util.NOTTINGHAM_MELODY_RANGE + chord_to_idx["CM"]
+            #     melody_idx = 24
+            #     chord = np.zeros(input_dim)
+            #     chord[chord_idx] = 1
+            #     chord[melody_idx] = 1
+
             seq = [chord]
 
             if args.conditioning > 0:
@@ -233,10 +259,10 @@ if __name__ == '__main__':
                         sampling_model.seq_input_lengths: [1]
                     }
                     state = session.run(sampling_model.final_state, feed_dict=feed)
-                    chord = data["train"]["data"][0][i, 0, :]
+                    chord = data["test"]["data"][0][i, sample_index, :]
                     seq.append(chord)
 
-            if args.dataset == 'nottingham':
+            if args.softmax:
                 writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
                 sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
             else:
@@ -255,6 +281,16 @@ if __name__ == '__main__':
                     feed_dict=feed)
                 probs = np.reshape(probs, [input_dim])
                 chord = sampler.sample_notes(probs)
+
+                if args.softmax:
+                    r = nottingham_util.NOTTINGHAM_MELODY_RANGE
+                    if args.sample_melody:
+                        chord[r:] = 0
+                        chord[r:] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][r:]
+                    elif args.sample_harmony:
+                        chord[:r] = 0
+                        chord[:r] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][:r]
+
                 seq.append(chord)
 
             writer.dump_sequence_to_midi(seq, "best.midi", 

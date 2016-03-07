@@ -32,11 +32,13 @@ class Model(object):
             self.lr_decay = tf.Variable(0.0, name="learning_rate_decay", trainable=False)
 
         if cell_type == "vanilla":
-            base_cell = rnn_cell.BasicRNNCell(hidden_size, input_size = input_dim)  
+            first_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = input_dim)  
+            hidden_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = hidden_size)
         else:
-            base_cell = rnn_cell.BasicLSTMCell(hidden_size, input_size = input_dim)  
+            first_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = input_dim)  
+            hidden_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = hidden_size)
 
-        cell = rnn_cell.MultiRNNCell([base_cell] * num_layers)
+        cell = rnn_cell.MultiRNNCell([first_layer] + [hidden_layer] * (1-num_layers))
         if training and dropout_prob < 1.0:
             cell = rnn_cell.DropoutWrapper(cell, output_keep_prob = dropout_prob)
 

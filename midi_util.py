@@ -153,7 +153,7 @@ class MidiWriter(object):
         return 0
 
     def dump_sequence_to_midi(self, sequence, output_filename, time_step, 
-                              resolution):
+                              resolution, metronome=24):
         if self.verbose:
             print "Dumping sequence to MIDI file: {}".format(output_filename)
             print "Resolution: {}".format(resolution)
@@ -161,6 +161,16 @@ class MidiWriter(object):
 
         pattern = midi.Pattern(resolution=resolution)
         self.track = midi.Track()
+
+        # metadata track
+        meta_track = midi.Track()
+        time_sig = midi.TimeSignatureEvent()
+        time_sig.set_numerator(4)
+        time_sig.set_denominator(4)
+        time_sig.set_metronome(metronome)
+        time_sig.set_thirtyseconds(8)
+        meta_track.append(time_sig)
+        pattern.append(meta_track)
 
         # reshape to (SEQ_LENGTH X NUM_DIMS)
         sequence = np.reshape(sequence, [-1, self.note_range])

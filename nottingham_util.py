@@ -39,8 +39,11 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, ve
     
     for d in ["train", "test", "valid"]:
         print "Parsing {}...".format(d)
-        seqs = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=verbose)
+        parsed = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=verbose)
+        metadata = [s[0] for s in parsed]
+        seqs = [s[1] for s in parsed]
         data[d] = seqs
+        data[d + '_metadata'] = metadata
         lens = [len(s[1]) for s in seqs]
         seq_lens += lens
         max_seq = max(max_seq, max(lens))
@@ -95,6 +98,7 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, ve
     for d in ["train", "test", "valid"]:
         print "Combining {}".format(d)
         store[d] = [ combine(m, h) for m, h in data[d] ]
+        store[d + '_metadata'] = data[d + '_metadata']
 
     with open(filename, 'w') as f:
         cPickle.dump(store, f, protocol=-1)
@@ -105,7 +109,7 @@ def parse_nottingham_directory(input_dir, time_step, verbose=False):
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
-        parse_nottingham_to_sequence(f, time_step=time_step, verbose=False) \
+        parse_nottingham_to_sequence(f, time_step=time_step, verbose=True) \
         for f in files ]
 
     if verbose:
@@ -113,7 +117,7 @@ def parse_nottingham_directory(input_dir, time_step, verbose=False):
         # print "Filtering {} ({})".format(len([x == None for x in sequences]), input_dir)
     
     # filter out the non 2-track MIDI's
-    sequences = filter(lambda x: x != None, sequences)
+    sequences = filter(lambda x: x[1] != None, sequences)
 
     if verbose:
         print "Total sequences left: {}".format(len(sequences))
@@ -124,17 +128,30 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
     sequence = []
     pattern = midi.read_midifile(input_filename)
 
+    metadata = {
+        "path": input_filename,
+        "name": input_filename.split("/")[-1].split(".")[0]
+    }
+
     # Most nottingham midi's have 3 tracks. metadata info, melody, harmony
     # throw away any tracks that don't fit this
     if len(pattern) != 3:
         if verbose:
             "Skipping track with {} tracks".format(len(pattern))
-        return None
+        return (metadata, None)
+
+    # ticks_per_quarter = -1
+    for msg in pattern[0]:
+        if isinstance(msg, midi.TimeSignatureEvent):
+            metadata["ticks_per_quarter"] = msg.get_metronome()
+            ticks_per_quarter = msg.get_metronome()
 
     if verbose:
+        print "{}".format(input_filename)
         print "Track resolution: {}".format(pattern.resolution)
         print "Number of tracks: {}".format(len(pattern))
         print "Time step: {}".format(time_step)
+        print "Ticks per quarter: {}".format(ticks_per_quarter)
 
     # Track ingestion stage
     track_ticks = 0
@@ -153,7 +170,7 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
         if np.count_nonzero(melody_sequence[i, :]) > 1:
             if verbose:
                 print "Double note found: {}: {} ({})".format(i, np.nonzero(melody_sequence[i, :]), input_filename)
-            return None
+            return (metadata, None)
 
     harmony_sequence = midi_util.round_notes(harmony_notes, track_ticks, time_step)
 
@@ -180,7 +197,7 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
                 # TODO: fix hack that removes 11ths
                 if chord[0].endswith("11"):
                     if verbose:
-                        print "Encountered 11th note, removing 11th ({}}".format(input_filename)
+                        print "Encountered 11th note, removing 11th ({})".format(input_filename)
                     chord[0] = chord[0][:-2]
 
                 if chord[0] in CHORD_BLACKLIST:
@@ -190,7 +207,7 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
         else:
             harmonies.append(NO_CHORD)
 
-    return melody_sequence, harmonies
+    return (metadata, (melody_sequence, harmonies))
 
 class NottinghamMidiWriter(midi_util.MidiWriter):
 
@@ -320,13 +337,17 @@ def accuracy(raw_probs, test_sequences, config):
 
 if __name__ == '__main__':
 
-    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_1.mid", 480, verbose=True)
-    # pprint(zip(range(len(harm)), harm))
-    prepare_nottingham_pickle(120, verbose=True)
+    resolution = 480
+    time_step = 120
 
-    # time_step = 240
-    # prepare_nottingham_pickle(time_step, filename="/tmp/nottingham.pickle")
-    # with open("/tmp/nottingham.pickle", 'r') as f:
-    #     p = cPickle.load(f)
-    # writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    # writer.dump_sequence_to_midi(p['train'][3], 'data_samples/test.midi', time_step, 240)
+    prepare_nottingham_pickle(time_step, verbose=True)
+    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_3.mid", time_step, verbose=True)
+    # pprint(zip(range(len(harm)), harm))
+
+    with open(PICKLE_LOC, 'r') as f:
+        p = cPickle.load(f)
+    writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
+    for i in range(len(p['train'])):
+        writer.dump_sequence_to_midi(p['train'][i], '/tmp/{}.midi'.format(p['train_metadata'][i]['name']), time_step, resolution)
+    for i in range(len(p['test'])):
+        writer.dump_sequence_to_midi(p['test'][i], '/tmp/{}.midi'.format(p['test_metadata'][i]['name']), time_step, resolution)

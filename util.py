@@ -111,9 +111,12 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
         if nottingham:
             sequences = pickle[dataset]
+            metadata = pickle[dataset + '_metadata']
             # sequences = [pickle[dataset][0]]
         else:
             sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+            # TODO: update metadata of normal method
+            metadata = [{} * len(sequences)]
 
         if dataset == 'test':
             mtb = -1
@@ -124,6 +127,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
         data[dataset] = {
             "data": notes,
+            "metadata": metadata,
             "targets": targets,
             "seq_lengths": seq_lengths,
             "unrolled_lengths": unrolled_lengths,
