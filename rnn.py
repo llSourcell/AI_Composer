@@ -1,5 +1,6 @@
 import os, sys
 import argparse
+import time
  
 import cPickle
 import numpy as np
@@ -58,8 +59,8 @@ if __name__ == '__main__':
         model_class = NottinghamModel
 
         #TODO: change to distinguish from regular nottingham model
-        model_suffix = '_nottingham.model'
-        charts_suffix = '_nottingham.png'
+        model_suffix = '_softmax.model'
+        charts_suffix = '_softmax.png'
     else:
         if args.dataset == 'bach':
             data_dir = 'data/JSBChorales'
@@ -107,7 +108,7 @@ if __name__ == '__main__':
         best_model_name = None
 
         for num_layers in [1, 2, 3]:
-            for hidden_size in [50, 100, 200]:
+            for hidden_size in [100, 200]:
                 for learning_rate in [1e-2]:
 
                     model_name = "nl_" + str(num_layers) + \
@@ -134,14 +135,16 @@ if __name__ == '__main__':
                         train_losses, valid_losses = [], []
                         train_model.assign_lr(session, learning_rate)
                         train_model.assign_lr_decay(session, args.learning_rate_decay)
+                        start_time = time.time()
                         for i in range(args.num_epochs):
                             loss = util.run_epoch(session, train_model, 
                                 data["train"], training=True)
                             train_losses.append((i, loss))
-                            if i % 10 == 0:
+                            if i % 10 == 0 and i != 0:
                                 valid_loss = util.run_epoch(session, valid_model, data["valid"])
                                 valid_losses.append((i, valid_loss))
-                                print 'Epoch: {}, Train Loss: {}, Valid Loss: {}'.format(i, loss, valid_loss)
+                                print 'Epoch: {}, Train Loss: {}, Valid Loss: {}, Time Per Epoch: {}'.format(
+                                    i, loss, valid_loss, time.time() - start_time)
 
                                 # early stop if generalization loss is worst than args.early_stopping
                                 if args.early_stopping > 0:
@@ -205,31 +208,16 @@ if __name__ == '__main__':
 
         # Deterministic Testing
         if args.test: 
-            test_loss, test_probs = util.run_epoch(session, test_model, data["test"], 
+            test_loss, test_probs = util.run_epoch(session, test_model, 
+                                                   data["test"], 
                                                    training=False, testing=True)
+
             print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
 
-            nottingham_util.accuracy(test_probs, pickle['test'], test_config)
-
-            # TODO: rewrite
-            # predicted = (test_probs > 0.5).astype(np.float32)
-            #
-            # true_positives = np.sum(np.multiply(predicted == test_targets, predicted))
-            # false_positives = np.sum(np.multiply(predicted != test_targets, predicted))
-            # false_negatives = np.sum(np.multiply(predicted != test_targets, test_targets))
-            #
-            # total_predicted = np.sum(np.multiply(predicted, predicted))
-            # total_targets = np.sum(np.multiply(test_targets, test_targets))
-            # if total_predicted != 0 and total_targets != 0:
-            #     precision = float(true_positives) / float(total_predicted)
-            #     recall = float(true_positives) / float(total_targets)
-            #     print 'Precision: {}'.format(precision)
-            #     print 'Recall: {}'.format(recall)
-            #     print 'F1 Score: {}'.format(2 * (precision * recall) / (precision + recall))
-            #     accuracy = float(true_positives) / float(true_positives + false_positives + false_negatives)
-            #     print 'Accuracy: {}'.format(accuracy)
-            # else:
-            #     print 'Total predicted and/or total targets == 0, there may be an error'
+            if args.softmax:
+                nottingham_util.accuracy(test_probs, pickle['test'], test_config)
+            else:
+                raise Exception("Test accuracy not implemented yet")
 
         # start with the first chord
         if do_sampling:

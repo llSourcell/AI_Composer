@@ -293,10 +293,8 @@ def accuracy(raw_probs, test_sequences, config):
     input_dim = config["input_dim"]
 
     # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
-    batches = list()
-    for time_batch in raw_probs:
-        batches.append(np.reshape(time_batch, [time_batch_len, batch_size, input_dim]))
-    test_probs = np.concatenate(batches, axis=0)
+    test_probs = np.concatenate(raw_probs, axis=0)
+    print test_probs.shape
 
     total = 0
     melody_correct, harmony_correct = 0, 0
@@ -325,10 +323,10 @@ def accuracy(raw_probs, test_sequences, config):
     print len(test_sequences)
 
     print 'Total Notes: {}'.format(total)
-    print 'Melody Accuracy: {} ({}/{})'.format(float(melody_correct) / float(total) / 2.0,
+    print 'Melody Accuracy: {} ({}/{})'.format((float(melody_correct) / float(total)) * 2.0,
                                                melody_correct,
                                                total / 2)
-    print 'Harmony Accuracy: {} ({}/{})'.format(float(harmony_correct) / float(total) / 2.0,
+    print 'Harmony Accuracy: {} ({}/{})'.format((float(harmony_correct) / float(total)) * 2.0,
                                                 harmony_correct,
                                                 total / 2)
     print 'Total Accuracy: {} ({}/{})'.format(float(melody_correct + harmony_correct) / float(total),

@@ -10,7 +10,7 @@ def prepare_targets(data):
     # roll back the time steps axis to get the target of each example
     targets = np.roll(data, -1, axis=0)
     # set final time step to "end of sequence" token
-    targets[-1, :, :] = 0
+    # targets[-1, :, :] = 0
 
     # sanity check
     assert targets.shape[0] == data.shape[0]
@@ -69,7 +69,9 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
     unsplit = list()
     unrolled_lengths = list()
     for sequence in sequences:
-        unrolled_lengths.append(sequence.shape[0])
+        # subtract one from each length because we can only perform
+        # target matching for the first n-1
+        unrolled_lengths.append(sequence.shape[0] - 1)
         copy = sequence.copy()
         copy.resize((time_batch_len * num_time_batches, dims)) 
         unsplit.append(copy)

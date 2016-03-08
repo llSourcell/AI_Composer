@@ -23,7 +23,7 @@ if __name__ == '__main__':
 
     lr = 1e-3
     lr_decay = 0.9
-    max_epochs = 1000
+    max_epochs = 200
     loss_convergence = 0.1
 
     chord_to_idx = {

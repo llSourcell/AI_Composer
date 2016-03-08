@@ -1,5 +1,6 @@
 import os, sys
 import argparse
+import time
  
 import numpy as np
 import tensorflow as tf    
@@ -16,11 +17,12 @@ if __name__ == '__main__':
     dims = midi_util.RANGE
     max_repeats = 10
     batch_size = 100
+    time_batch_len = 8
 
-    lr = 1e-3
+    lr = 1e-2
     lr_decay = 0.9
     max_epochs = 1000
-    loss_convergence = 0.3
+    loss_convergence = 1.0
 
     # reshape to a (seq_length x num_dims)
     # bunch of variable length progressions
@@ -31,7 +33,8 @@ if __name__ == '__main__':
         chord_seq = np.reshape(chord_seq, [-1, dims])
         sequences += [chord_seq.copy()]
 
-    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = 4, max_time_batches = -1)
+    notes, targets, rolled_lengths, unrolled_lengths = \
+        util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
 
     assert len(notes) == len(targets) == len(rolled_lengths)
     assert notes[0].shape[1] == len(unrolled_lengths)
@@ -54,9 +57,9 @@ if __name__ == '__main__':
         "input_dim": dims,
         "hidden_size": 100,
         "num_layers": 1,
-        "dropout_prob": 0.5,
+        "dropout_prob": 1.0,
         "batch_size": batch_size,
-        "time_batch_len": 4,
+        "time_batch_len": time_batch_len,
         "cell_type": "lstm"
     } 
 
@@ -71,10 +74,12 @@ if __name__ == '__main__':
         # training
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
+        time_start = time.time()
         for i in range(max_epochs):
             loss = util.run_epoch(session, train_model, full_data, training=True)
-            if i % 10 == 0:
-                print 'Loss: {}'.format(loss)
+            if i % 10 == 0 and i != 0:
+                print 'Epoch {}, Loss: {}, Time Per Epoch {}'.\
+                    format(i, loss, (time.time() - time_start) / i)
             if loss < loss_convergence:
                 break
 

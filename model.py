@@ -53,36 +53,33 @@ class Model(object):
 
         self.initial_state = cell.zero_state(batch_size, tf.float32)
 
-        # make inputs/targets a list of [batch_size x D] time-steps
-        inputs = [tf.reshape(i, (batch_size, input_dim)) for i in 
-                  tf.split(0, time_batch_len, self.seq_input)]
-        targets = [tf.reshape(i, (batch_size, input_dim)) for i in 
-                   tf.split(0, time_batch_len, self.seq_targets)]
+        inputs_list = tf.unpack(self.seq_input)
 
         # rnn outputs a list of [batch_size x H] outputs
-        outputs, self.final_state = rnn.rnn(cell, inputs, 
-                                            initial_state=self.initial_state,
-                                            sequence_length=self.seq_input_lengths)
+        outputs_list, self.final_state = rnn.rnn(cell, inputs_list, 
+                                                 initial_state=self.initial_state,
+                                                 sequence_length=self.seq_input_lengths)
 
-        # reshape outputs (batch_size * time_batch_len) x H
-        outputs_concat = tf.reshape(tf.concat(1, outputs), 
-                                    [batch_size * time_batch_len, hidden_size]) 
-        # reshape targets into (batch_size * time_batch_len) x D
-        self.targets_concat = tf.reshape(tf.concat(1, targets),
-                                         [batch_size * time_batch_len, input_dim])
-        # calculate outputs of (batch_size * time_batch_len) x D
-        logits = tf.matmul(outputs_concat, output_W) + output_b
+        outputs = tf.pack(outputs_list)
+
+        logits = tf.pack([tf.matmul(outputs_list[t], output_W) + output_b for t in range(time_batch_len)])
+
+        # TODO: verify if the below is faster and correct
+        # outputs_concat = tf.reshape(outputs, [time_batch_len * batch_size, hidden_size])
+        # logits_concat = tf.matmul(outputs_concat, output_W) + output_b
+        # logits = tf.reshape(logits_concat, [time_batch_len, batch_size, input_dim])
+
+        assert logits.get_shape() == self.seq_targets.get_shape()
         
         # probabilities of each note
         self.probs = self.calculate_probs(logits)
-
-        self.loss = self.init_loss(logits, self.targets_concat)
+        self.loss = self.init_loss(logits, self.seq_targets)
         self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
                             .minimize(self.loss)
 
     def init_loss(self, outputs, targets):
-        concat_losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, targets) 
-        losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size, self.input_dim])
+        losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, targets) 
+        # losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size, self.input_dim])
         loss_per_seq = tf.reduce_sum(losses, [0, 2])
         seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
         return tf.reduce_sum(seq_length_norm) / self.batch_size
@@ -105,20 +102,32 @@ class NottinghamModel(Model):
         melody_coeff = 1
         harmony_coeff = 1
 
-        melody_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-                outputs[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE],
-                tf.argmax(targets[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE], 1))
-        harmony_loss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-                outputs[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:],
-                tf.argmax(targets[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:], 1))
+        melody_loss, harmony_loss = None, None
+        for t in range(self.time_batch_len):
+            mloss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
+                outputs[t, :, :nottingham_util.NOTTINGHAM_MELODY_RANGE], \
+                tf.argmax(targets[t, :, :nottingham_util.NOTTINGHAM_MELODY_RANGE], 1))
+            if t == 0:
+                melody_loss = mloss
+            else:
+                melody_loss = tf.add(mloss, melody_loss)
+
+            hloss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
+                outputs[t, :, nottingham_util.NOTTINGHAM_MELODY_RANGE:], \
+                tf.argmax(targets[t, :, nottingham_util.NOTTINGHAM_MELODY_RANGE:], 1))
+            if t == 0:
+                harmony_loss = hloss
+            else:
+                harmony_loss = tf.add(hloss, harmony_loss)
 
         concat_losses = tf.add(melody_coeff * melody_loss, harmony_coeff * harmony_loss)
-        losses = tf.reshape(concat_losses, [self.time_batch_len, self.batch_size])
-        loss_per_seq = tf.reduce_sum(losses, [0])
-        seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
+        seq_length_norm = tf.div(concat_losses, self.unrolled_lengths)
         return tf.reduce_sum(seq_length_norm) / self.batch_size
 
     def calculate_probs(self, logits):
-        melody_softmax = tf.nn.softmax(logits[:, :nottingham_util.NOTTINGHAM_MELODY_RANGE])
-        harmony_softmax = tf.nn.softmax(logits[:, nottingham_util.NOTTINGHAM_MELODY_RANGE:])
-        return tf.concat(1, [melody_softmax, harmony_softmax]) 
+        steps = []
+        for t in range(self.time_batch_len):
+            melody_softmax = tf.nn.softmax(logits[t, :, :nottingham_util.NOTTINGHAM_MELODY_RANGE])
+            harmony_softmax = tf.nn.softmax(logits[t, :, nottingham_util.NOTTINGHAM_MELODY_RANGE:])
+            steps.append(tf.concat(1, [melody_softmax, harmony_softmax]))
+        return tf.pack(steps)

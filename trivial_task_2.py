@@ -17,9 +17,9 @@ if __name__ == '__main__':
     max_repeats = 5
     batch_size = 100
 
-    lr = 1e-3
+    lr = 1e-2
     lr_decay = 0.9
-    max_epochs = 1000
+    max_epochs = 200
     loss_convergence = 0.3
 
     # reshape to a (seq_length x num_dims)
@@ -32,7 +32,8 @@ if __name__ == '__main__':
         full_seq = np.reshape(chord_seq, [-1, dims])
         sequences += [full_seq.copy()]
 
-    midi_util.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=120, resolution=100)
+    writer = midi_util.MidiWriter(verbose=True) 
+    writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=120, resolution=100)
 
     notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = 4, max_time_batches = -1)
 
@@ -48,9 +49,9 @@ if __name__ == '__main__':
 
     config = {
         "input_dim": dims,
-        "hidden_size": 100,
-        "num_layers": 1,
-        "dropout_prob": 0.5,
+        "hidden_size": 200,
+        "num_layers": 2,
+        "dropout_prob": 1.0,
         "batch_size": batch_size,
         "time_batch_len": 4,
         "cell_type": "lstm"
@@ -101,5 +102,4 @@ if __name__ == '__main__':
             chord = sampler.sample_notes(probs, num_notes=3)
             seq.append(chord)
 
-        writer = midi_util.MidiWriter(verbose=True) 
         writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=120, resolution=100)
