@@ -6,25 +6,32 @@ import cPickle
 
 import midi_util
 
-def prepare_targets(data):
+def prepare_targets(data, unrolled_lengths):
     # roll back the time steps axis to get the target of each example
     targets = np.roll(data, -1, axis=0)
-    # set final time step to "end of sequence" token
     # targets[-1, :, :] = 0
+
+    # experiment: set the rest of the targets to randoms
+    # for seq_idx, length in enumerate(unrolled_lengths):
+    #     for i in range(length, targets.shape[0]):
+    #         targets[i, seq_idx, :] = np.random.random_sample(targets.shape[2])
+
+    # set the targets to final chord
+    for seq_idx, length in enumerate(unrolled_lengths):
+        for i in range(length, targets.shape[0]):
+            targets[i, seq_idx, :] = 0
+            data[i, seq_idx, :] = 0
 
     # sanity check
     assert targets.shape[0] == data.shape[0]
-    for i in range(targets.shape[0]-1):
-        assert data[i+1, :, :].tolist() == targets[i, :, :].tolist()
-    # print 'passed sanity checks'
 
-    return targets
+    return data, targets
 
 def parse_midi_directory(input_dir, time_step):
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
-        midi_util.parse_midi_to_sequence(f, time_step=time_step) \
+        (f, midi_util.parse_midi_to_sequence(f, time_step=time_step)) \
         for f in files ]
 
     return sequences
@@ -57,6 +64,9 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
     if max_time_batches >= 0:
         num_time_batches = min(total_time_batches, max_time_batches)
         max_len = time_batch_len * num_time_batches
+        # filter out any sequences that are too long. 
+        # TODO: is this the right call, or should we just use the first part of the
+        # sequence?
         sequences = filter(lambda x: len(x) <= max_len, sequences)
         sequence_lens = [s.shape[0] for s in sequences]
     else:
@@ -79,7 +89,7 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, verbose=False)
     stacked = np.dstack(unsplit)
     # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
     all_batches = np.swapaxes(stacked, 1, 2)
-    all_targets = prepare_targets(all_batches)
+    all_batches, all_targets = prepare_targets(all_batches, unrolled_lengths)
 
     # sanity checks
     assert all_batches.shape == all_targets.shape
@@ -116,9 +126,14 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
             metadata = pickle[dataset + '_metadata']
             # sequences = [pickle[dataset][0]]
         else:
-            sequences = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+            sf = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
+            sequences = [s[1] for s in sf]
+            files = [s[0] for s in sf]
             # TODO: update metadata of normal method
-            metadata = [{} * len(sequences)]
+            metadata = [{
+                'path': f,
+                'name': f.split("/")[-1].split(".")[0]
+            } for f in files]
 
         if dataset == 'test':
             mtb = -1
@@ -140,7 +155,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
     return data
 
-def run_epoch(session, model, data, training=False, testing=False):
+def run_epoch(session, model, data, training=False, testing=False, batch_size=100):
 
     # change each data into a batch of data if it isn't already
     for n in ["data", "targets", "seq_lengths"]:
@@ -176,3 +191,36 @@ def run_epoch(session, model, data, training=False, testing=False):
         return [loss, prob_vals]
     else:
         return loss
+
+def accuracy(raw_probs, raw_targets, unrolled_lengths, config, num_samples=20):
+    
+    batch_size = config["batch_size"]
+    time_batch_len = config["time_batch_len"]
+    input_dim = config["input_dim"]
+
+    # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
+    test_probs = np.concatenate(raw_probs, axis=0)
+    test_targets = np.concatenate(raw_targets, axis=0)
+
+    false_positives, false_negatives, true_positives = 0, 0, 0 
+    for seq_idx in range(test_targets.shape[1]):
+        for step_idx in range(test_targets.shape[0]):
+            # can't predict anything with first step
+            if step_idx == 0:
+                continue
+
+            # if we've reached the end of the sequence, go to next seq
+            if step_idx >= unrolled_lengths[seq_idx]:
+                break
+
+            for note_idx, prob in enumerate(test_probs[step_idx-1, seq_idx, :]):  
+                num_occurrences = np.random.binomial(num_samples, prob)
+                if test_targets[step_idx, seq_idx, note_idx] == 0.0:
+                    false_positives += num_occurrences
+                else:
+                    false_negatives += (num_samples - num_occurrences)
+                    true_positives += num_occurrences
+                
+    accuracy = (float(true_positives) / (true_positives + false_positives + false_negatives)) 
+
+    print "Accuracy: {}".format(accuracy)

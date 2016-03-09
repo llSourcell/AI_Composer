@@ -66,7 +66,7 @@ if __name__ == '__main__':
             data_dir = 'data/JSBChorales'
             resolution = 100
             time_step = 120
-            time_batch_len = -1 # use the longest seq length
+            time_batch_len = 100 # use the longest seq length
             max_time_batches = -1 
         elif args.dataset == 'nottingham':
             data_dir = 'data/Nottingham'
@@ -84,12 +84,13 @@ if __name__ == '__main__':
         charts_suffix = '_' + args.dataset + '.png'
 
     input_dim = data["input_dim"]
+
     print 'Finished loading data, input dim: {}'.format(input_dim)
 
     default_config = {
         "input_dim": input_dim,
         "hidden_size": 100,
-        "num_layers": 1,
+        "num_layers": 2,
         "dropout_prob": 0.5,
         "cell_type": "lstm",
     } 
@@ -107,13 +108,11 @@ if __name__ == '__main__':
         best_valid_loss = None
         best_model_name = None
 
-        for num_layers in [1, 2, 3]:
-            for hidden_size in [100, 200]:
-                for learning_rate in [1e-2]:
-
+        for melody_coeff in [0.5]:
+            for num_layers in [1, 2]:
+                for hidden_size in [50, 100, 150]:
                     model_name = "nl_" + str(num_layers) + \
-                                 "_hs_" + str(hidden_size) + \
-                                 "_lr_" + str(learning_rate).replace(".", "p")
+                                 "_hs_" + str(hidden_size)
                     config = dict(default_config, **{
                         "input_dim": input_dim,
                         "hidden_size": hidden_size,
@@ -130,11 +129,15 @@ if __name__ == '__main__':
                         saver = tf.train.Saver(tf.all_variables())
                         tf.initialize_all_variables().run()
 
+                        train_model.assign_lr(session, args.learning_rate)
+                        train_model.assign_lr_decay(session, args.learning_rate_decay)
+                        train_model.assign_melody_coeff(session, melody_coeff)
+
                         # training
                         early_stop_best_loss = None
+                        start_saving = False
+                        saved_flag = False
                         train_losses, valid_losses = [], []
-                        train_model.assign_lr(session, learning_rate)
-                        train_model.assign_lr_decay(session, args.learning_rate_decay)
                         start_time = time.time()
                         for i in range(args.num_epochs):
                             loss = util.run_epoch(session, train_model, 
@@ -144,17 +147,29 @@ if __name__ == '__main__':
                                 valid_loss = util.run_epoch(session, valid_model, data["valid"])
                                 valid_losses.append((i, valid_loss))
                                 print 'Epoch: {}, Train Loss: {}, Valid Loss: {}, Time Per Epoch: {}'.format(
-                                    i, loss, valid_loss, time.time() - start_time)
+                                    i, loss, valid_loss, (time.time() - start_time)/i)
+
+                                # if it's best validation loss so far, save it
+                                if early_stop_best_loss == None:
+                                    early_stop_best_loss = valid_loss
+                                elif valid_loss < early_stop_best_loss:
+                                    early_stop_best_loss = valid_loss
+                                    if start_saving:
+                                        print 'Best loss so far encountered, saving model.'
+                                        saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
+                                        saved_flag = True
+                                elif not start_saving:
+                                    start_saving = True 
+                                    print 'Valid loss increased for the first time, will start saving models'
 
                                 # early stop if generalization loss is worst than args.early_stopping
                                 if args.early_stopping > 0:
-                                    early_stop_best_loss = min(early_stop_best_loss, valid_loss) if early_stop_best_loss != None else valid_loss
                                     if ((valid_loss / early_stop_best_loss) - 1.0) > args.early_stopping:
                                         print 'Early stopping criteria reached: {}'.format(args.early_stopping)
                                         break
 
-                        saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
-                        # print "Saved model"
+                        if not saved_flag:
+                            saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
 
                         # set loss axis max to 20
                         axes = plt.gca()
@@ -166,11 +181,10 @@ if __name__ == '__main__':
                         plt.clf()
                         # print "Saved graph"
 
-                        valid_loss = util.run_epoch(session, valid_model, data["valid"])
-                        print "Model {} Loss: {}".format(model_name, valid_loss)
-                        if best_valid_loss == None or valid_loss < best_valid_loss:
+                        print "Model {}, Loss: {}".format(model_name, early_stop_best_loss)
+                        if best_valid_loss == None or early_stop_best_loss < best_valid_loss:
                             print "Found best new model: {}".format(model_name)
-                            best_valid_loss = valid_loss
+                            best_valid_loss = early_stop_best_loss
                             best_config = config
                             best_model_name = model_name
 
@@ -184,7 +198,6 @@ if __name__ == '__main__':
     # # SAMPLING SESSION #
 
     do_sampling = args.sample_length > 0
-
     if not args.test and not do_sampling:
         sys.exit(0)
 
@@ -217,13 +230,14 @@ if __name__ == '__main__':
             if args.softmax:
                 nottingham_util.accuracy(test_probs, pickle['test'], test_config)
             else:
-                raise Exception("Test accuracy not implemented yet")
+                util.accuracy(test_probs, data['test']['targets'], 
+                    data['test']['unrolled_lengths'], test_config, num_samples=50)
 
         # start with the first chord
         if do_sampling:
             state = sampling_model.initial_state.eval()
-            sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[0]))
-            sampling_length = data["test"]["unrolled_lengths"][sample_index]
+            sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[1]))
+            sampling_length = max(data["test"]["unrolled_lengths"][sample_index], args.sample_length)
             print "Sampling File: {} ({} time steps)".format(
                 data["test"]["metadata"][sample_index]['name'], sampling_length)
 
@@ -247,12 +261,12 @@ if __name__ == '__main__':
                         sampling_model.seq_input_lengths: [1]
                     }
                     state = session.run(sampling_model.final_state, feed_dict=feed)
-                    chord = data["test"]["data"][0][i, sample_index, :]
+                    chord = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :]
                     seq.append(chord)
 
             if args.softmax:
                 writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
-                sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
+                sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
             else:
                 writer = midi_util.MidiWriter()
                 sampler = sampling.Sampler(min_prob = args.temp, verbose=False)

@@ -258,9 +258,18 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
 
 class NottinghamSampler(object):
 
-    def __init__(self, chord_to_idx, verbose=False):
+    def __init__(self, chord_to_idx, method = 'sample', harmony_repeat_max = 16, melody_repeat_max = 16, verbose=False):
         self.verbose = verbose 
         self.idx_to_chord = { i: c for c, i in chord_to_idx.items() }
+        self.method = method
+
+        self.hlast = 0
+        self.hcount = 0
+        self.hrepeat = harmony_repeat_max
+
+        self.mlast = 0
+        self.mcount = 0
+        self.mrepeat = melody_repeat_max 
 
     def visualize_probs(self, probs):
         if not self.verbose:
@@ -276,17 +285,65 @@ class NottinghamSampler(object):
         print 'Top Harmony Notes: '
         pprint(harmonies)
 
-    def sample_notes(self, probs, num_notes=2):
-        self.visualize_probs(probs)
-        top_melody = probs[:NOTTINGHAM_MELODY_RANGE].argsort()[-1]
-        top_chord = probs[NOTTINGHAM_MELODY_RANGE:].argsort()[-1] + NOTTINGHAM_MELODY_RANGE
+    def sample_notes_static(self, probs):
+        top_m = probs[:NOTTINGHAM_MELODY_RANGE].argsort()
+        if top_m[-1] == self.mlast and self.mcount >= self.mrepeat:
+            top_m = top_m[:-1]
+            self.mcount = 0
+        elif top_m[-1] == self.mlast:
+            self.mcount += 1
+        else:
+            self.mcount = 0
+        self.mlast = top_m[-1]
+        top_melody = top_m[-1]
+
+        top_h = probs[NOTTINGHAM_MELODY_RANGE:].argsort()
+        if top_h[-1] == self.hlast and self.hcount >= self.hrepeat:
+            top_h = top_h[:-1]
+            self.hcount = 0
+        elif top_h[-1] == self.hlast:
+            self.hcount += 1
+        else:
+            self.hcount = 0
+        self.hlast = top_h[-1]
+        top_chord = top_h[-1] + NOTTINGHAM_MELODY_RANGE
 
         chord = np.zeros([len(probs)], dtype=np.int32)
         chord[top_melody] = 1.0
         chord[top_chord] = 1.0
         return chord
 
-def accuracy(raw_probs, test_sequences, config):
+    def sample_notes_dist(self, probs):
+        idxed = [(i, p) for i, p in enumerate(probs)]
+
+        notes = [n[0] for n in idxed]
+        ps = np.array([n[1] for n in idxed])
+        r = NOTTINGHAM_MELODY_RANGE
+
+        assert np.allclose(np.sum(ps[:r]), 1.0)
+        assert np.allclose(np.sum(ps[r:]), 1.0)
+
+        # renormalize so numpy doesn't complain
+        ps[:r] = ps[:r] / ps[:r].sum()
+        ps[r:] = ps[r:] / ps[r:].sum()
+
+        melody = np.random.choice(notes[:r], p=ps[:r])
+        harmony = np.random.choice(notes[r:], p=ps[r:])
+
+        chord = np.zeros([len(probs)], dtype=np.int32)
+        chord[melody] = 1.0
+        chord[harmony] = 1.0
+        return chord
+
+
+    def sample_notes(self, probs):
+        self.visualize_probs(probs)
+        if self.method == 'static':
+            return self.sample_notes_static(probs)
+        elif self.method == 'sample':
+            return self.sample_notes_dist(probs)
+
+def accuracy(raw_probs, test_sequences, config, num_samples=1):
     
     batch_size = config["batch_size"]
     time_batch_len = config["time_batch_len"]
@@ -296,42 +353,70 @@ def accuracy(raw_probs, test_sequences, config):
     test_probs = np.concatenate(raw_probs, axis=0)
     print test_probs.shape
 
-    total = 0
-    melody_correct, harmony_correct = 0, 0
-    for seq_idx, seq in enumerate(test_sequences):
-        for step_idx in range(seq.shape[0]):
-            if step_idx == 0:
-                continue
+    def calc_accuracy():
+        total = 0
+        melody_correct, harmony_correct = 0, 0
+        for seq_idx, seq in enumerate(test_sequences):
+            for step_idx in range(seq.shape[0]):
+                if step_idx == 0:
+                    continue
 
-            melody = test_probs[step_idx-1, seq_idx, :NOTTINGHAM_MELODY_RANGE].argsort()[-1]
-            harmony = test_probs[step_idx-1, seq_idx, NOTTINGHAM_MELODY_RANGE:].argsort()[-1]
+                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx-1, seq_idx, :])]
+                notes = [n[0] for n in idxed]
+                ps = np.array([n[1] for n in idxed])
+                r = NOTTINGHAM_MELODY_RANGE
 
-            melody_target = np.nonzero(seq[step_idx, :NOTTINGHAM_MELODY_RANGE])[0] 
-            assert len(melody_target) == 1
-            if melody_target == melody:
-                melody_correct += 1
+                assert np.allclose(np.sum(ps[:r]), 1.0)
+                assert np.allclose(np.sum(ps[r:]), 1.0)
 
-            harmony_target = np.nonzero(seq[step_idx, NOTTINGHAM_MELODY_RANGE:])[0] 
-            assert len(harmony_target) == 1
-            if harmony_target == harmony:
-                harmony_correct += 1
+                # renormalize so numpy doesn't complain
+                ps[:r] = ps[:r] / ps[:r].sum()
+                ps[r:] = ps[r:] / ps[r:].sum()
 
-            total += 2
+                melody = np.random.choice(notes[:r], p=ps[:r])
+                harmony = np.random.choice(notes[r:], p=ps[r:])
 
-    print config
-    print test_probs.shape
-    print len(test_sequences)
+                melody_target = np.nonzero(seq[step_idx, :r])[0] 
+                assert len(melody_target) == 1
+                if melody_target == melody:
+                    melody_correct += 1
 
-    print 'Total Notes: {}'.format(total)
-    print 'Melody Accuracy: {} ({}/{})'.format((float(melody_correct) / float(total)) * 2.0,
-                                               melody_correct,
-                                               total / 2)
-    print 'Harmony Accuracy: {} ({}/{})'.format((float(harmony_correct) / float(total)) * 2.0,
-                                                harmony_correct,
-                                                total / 2)
-    print 'Total Accuracy: {} ({}/{})'.format(float(melody_correct + harmony_correct) / float(total),
-                                              melody_correct + harmony_correct,
-                                              total)
+                harmony_target = np.nonzero(seq[step_idx, r:])[0] + NOTTINGHAM_MELODY_RANGE
+                assert len(harmony_target) == 1
+                if harmony_target == harmony:
+                    harmony_correct += 1
+
+                total += 2
+
+        melody_acc = (float(melody_correct) / float(total)) * 2.0
+        harmony_acc = (float(harmony_correct) / float(total)) * 2.0
+        total_acc = float(melody_correct + harmony_correct) / float(total)
+
+        return (melody_acc, harmony_acc, total_acc)
+
+    maccs, haccs, taccs = [], [], []
+    for i in range(num_samples):
+        print "Sample {}".format(i)
+        macc, hacc, tacc = calc_accuracy()
+        maccs.append(macc)
+        haccs.append(hacc)
+        taccs.append(tacc)
+
+    print "Melody Accuracy: {}".format(sum(maccs)/len(maccs))
+    print "Harmony Accuracy: {}".format(sum(haccs)/len(haccs))
+    print "Total Accuracy: {}".format(sum(taccs)/len(taccs))
+
+
+    # print 'Total Notes: {}'.format(total)
+    # print 'Melody Accuracy: {} ({}/{})'.format((float(melody_correct) / float(total)) * 2.0,
+    #                                            melody_correct,
+    #                                            total / 2)
+    # print 'Harmony Accuracy: {} ({}/{})'.format((float(harmony_correct) / float(total)) * 2.0,
+    #                                             harmony_correct,
+    #                                             total / 2)
+    # print 'Total Accuracy: {} ({}/{})'.format(float(melody_correct + harmony_correct) / float(total),
+    #                                           melody_correct + harmony_correct,
+    #                                           total)
 
 if __name__ == '__main__':
 

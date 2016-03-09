@@ -20,7 +20,7 @@ if __name__ == '__main__':
     lr = 1e-2
     lr_decay = 0.9
     max_epochs = 200
-    loss_convergence = 0.3
+    loss_convergence = 0.001
 
     # reshape to a (seq_length x num_dims)
     # bunch of variable length progressions
@@ -99,7 +99,7 @@ if __name__ == '__main__':
                 [sample_model.probs, sample_model.final_state],
                 feed_dict=feed)
             probs = np.reshape(probs, dims)
-            chord = sampler.sample_notes(probs, num_notes=3)
+            chord = sampler.sample_notes(probs)
             seq.append(chord)
 
         writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=120, resolution=100)

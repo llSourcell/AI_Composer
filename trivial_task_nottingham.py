@@ -23,8 +23,8 @@ if __name__ == '__main__':
 
     lr = 1e-3
     lr_decay = 0.9
-    max_epochs = 200
-    loss_convergence = 0.1
+    max_epochs = 500
+    loss_convergence = 0.001
 
     chord_to_idx = {
         "CM": 0,
@@ -116,7 +116,7 @@ if __name__ == '__main__':
         for i in range(max_epochs):
             loss = util.run_epoch(session, train_model, full_data, training=True)
             if i % 10 == 0:
-                print 'Loss: {}'.format(loss)
+                print 'Epoch: {}, Loss: {}'.format(i, loss)
             if loss < loss_convergence:
                 break
 
@@ -149,3 +149,4 @@ if __name__ == '__main__':
 
         writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
         writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=time_step, resolution=TICKS_PER_QUARTER)
+        print 'Final Train Loss: {}'.format(loss)

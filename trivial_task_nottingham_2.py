@@ -1,5 +1,6 @@
 import os, sys
 import argparse
+import time
  
 import numpy as np
 import tensorflow as tf    
@@ -23,8 +24,8 @@ if __name__ == '__main__':
 
     lr = 1e-3
     lr_decay = 0.9
-    max_epochs = 200
-    loss_convergence = 0.1
+    max_epochs = 500
+    loss_convergence = 0.001
 
     chord_to_idx = {
         "CM": 0,
@@ -86,10 +87,23 @@ if __name__ == '__main__':
         num_notes = len(np.nonzero(notes[0][i, 0, :])[0])
         assert num_notes == 1 or num_notes == 2
 
-    # assert np.array_equal(notes[0][1, 0, :], targets[0][0, 0, :])
-    # assert np.array_equal(notes[0][2, 0, :], targets[0][1, 0, :])
-    # assert np.array_equal(notes[0][3, 0, :], targets[0][2, 0, :])
-    # assert np.array_equal(notes[1][0, 0, :], targets[0][3, 0, :])
+    # verification
+    # total_time_steps = len(notes) * notes[0].shape[0]
+    # for seq_idx, length in enumerate(unrolled_lengths):
+    #     for i in range(1, total_time_steps):
+    #         if i < length:
+    #             assert np.array_equal(targets[(i-1)/time_batch_len][(i-1)%time_batch_len, seq_idx, :],
+    #                                   notes[i/time_batch_len][i%time_batch_len, seq_idx, :])
+    #         elif i == length:
+    #             assert np.array_equal(targets[i/time_batch_len][i%time_batch_len, seq_idx, :],
+    #                                   np.zeros(dims))
+    #
+    #         else:
+    #             assert np.array_equal(targets[i/time_batch_len][i%time_batch_len, seq_idx, :],
+    #                                   np.zeros(dims))
+
+    # sys.exit(0)
+    #
 
     full_data = {
         "data": notes,
@@ -101,7 +115,7 @@ if __name__ == '__main__':
     config = {
         "input_dim": dims,
         "hidden_size": 100,
-        "num_layers": 1,
+        "num_layers": 2,
         "dropout_prob": 1.0,
         "batch_size": batch_size,
         "time_batch_len": time_batch_len,
@@ -119,10 +133,11 @@ if __name__ == '__main__':
         # training
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
+        start_time = time.time()
         for i in range(max_epochs):
             loss = util.run_epoch(session, train_model, full_data, training=True)
-            if i % 10 == 0:
-                print 'Loss: {}'.format(loss)
+            if i % 10 == 0 and i != 0:
+                print 'Epoch: {}, Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
             if loss < loss_convergence:
                 break
 
@@ -134,7 +149,8 @@ if __name__ == '__main__':
             }), training=False)
 
         # start with the first chord
-        chord = sequences[0][0]
+        # chord = sequences[0][0]
+        chord = np.zeros(dims)
         seq = [chord]
         state = sample_model.initial_state.eval()
         sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
@@ -155,3 +171,4 @@ if __name__ == '__main__':
 
         writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
         writer.dump_sequence_to_midi(seq, "trivial.midi", time_step=time_step, resolution=TICKS_PER_QUARTER)
+        print 'Final Train Loss: {}'.format(loss)
