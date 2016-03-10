@@ -15,6 +15,8 @@ from model import Model, NottinghamModel
 
 ###############################################################################
 # TODO:
+#   1. linear search over melody coeffecients
+#   2. add dropout to the softmax layer?
 ###############################################################################
 
 if __name__ == '__main__':
