@@ -16,6 +16,7 @@ if __name__ == '__main__':
     dims = midi_util.RANGE
     max_repeats = 5
     batch_size = 100
+    minibatch_size = 57
 
     lr = 1e-2
     lr_decay = 0.9
@@ -49,10 +50,9 @@ if __name__ == '__main__':
 
     config = {
         "input_dim": dims,
-        "hidden_size": 200,
-        "num_layers": 2,
+        "hidden_size": 100,
+        "num_layers": 1,
         "dropout_prob": 1.0,
-        "batch_size": batch_size,
         "time_batch_len": 4,
         "cell_type": "lstm"
     } 
@@ -69,23 +69,23 @@ if __name__ == '__main__':
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
         for i in range(max_epochs):
-            loss = util.run_epoch(session, train_model, full_data, training=True)
+            loss = util.run_epoch(session, train_model, full_data, training=True,
+                batch_size = minibatch_size)
             if i % 10 == 0:
-                print 'Loss: {}'.format(loss)
+                print 'Epoch: {}, Loss: {}'.format(i, loss)
             if loss < loss_convergence:
                 break
 
         # SAMPLING SESSION #
         with tf.variable_scope("trivial", reuse=True):
             sample_model = Model(dict(config, **{
-                "batch_size": 1,
                 "time_batch_len": 1
             }), training=False)
 
         # start with the first chord
         chord = midi_util.cmaj()
         seq = [chord]
-        state = sample_model.initial_state.eval()
+        state = sample_model.get_cell_zero_state(session, 1)
         sampler = sampling.Sampler(verbose=True)
 
         for i in range(8 * max_repeats * 2):

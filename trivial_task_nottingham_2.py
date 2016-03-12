@@ -19,13 +19,15 @@ if __name__ == '__main__':
     
     max_repeats = 5
     batch_size = 100
-    time_batch_len = 4
+    minibatch_size = 50
+    time_batch_len = 16
     time_step = 120
+    melody_coeff = 0.5
 
     lr = 1e-3
-    lr_decay = 0.9
+    lr_decay = 0.8
     max_epochs = 500
-    loss_convergence = 0.001
+    loss_convergence = 0.01
 
     chord_to_idx = {
         "CM": 0,
@@ -78,7 +80,8 @@ if __name__ == '__main__':
         writer.dump_sequence_to_midi(sequences[i], 
             "trivial_truth_{}.midi".format(i), time_step=time_step, resolution=TICKS_PER_QUARTER)
 
-    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
+    notes, targets, rolled_lengths, unrolled_lengths = \
+        util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1, softmax=True)
 
     assert len(notes) == len(targets) == len(rolled_lengths)
     assert notes[0].shape[1] == len(unrolled_lengths)
@@ -96,14 +99,11 @@ if __name__ == '__main__':
     #                                   notes[i/time_batch_len][i%time_batch_len, seq_idx, :])
     #         elif i == length:
     #             assert np.array_equal(targets[i/time_batch_len][i%time_batch_len, seq_idx, :],
-    #                                   np.zeros(dims))
+    #                                   notes[i/time_batch_len][i%time_batch_len, seq_idx, :])
     #
     #         else:
     #             assert np.array_equal(targets[i/time_batch_len][i%time_batch_len, seq_idx, :],
-    #                                   np.zeros(dims))
-
-    # sys.exit(0)
-    #
+    #                                   notes[i/time_batch_len][i%time_batch_len, seq_idx, :])
 
     full_data = {
         "data": notes,
@@ -115,9 +115,8 @@ if __name__ == '__main__':
     config = {
         "input_dim": dims,
         "hidden_size": 100,
-        "num_layers": 2,
+        "num_layers": 1,
         "dropout_prob": 1.0,
-        "batch_size": batch_size,
         "time_batch_len": time_batch_len,
         "cell_type": "lstm"
     } 
@@ -133,18 +132,27 @@ if __name__ == '__main__':
         # training
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
+        # train_model.assign_melody_coeff(session, melody_coeff)
         start_time = time.time()
         for i in range(max_epochs):
-            loss = util.run_epoch(session, train_model, full_data, training=True)
+            loss = util.run_epoch(session, train_model, full_data, training=True, batch_size = minibatch_size)
             if i % 10 == 0 and i != 0:
                 print 'Epoch: {}, Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
             if loss < loss_convergence:
                 break
 
+        # TESTING
+        # with tf.variable_scope("trivial", reuse=True):
+        #     test_model = NottinghamModel(config)
+        #     # test_model.assign_melody_coeff(session, melody_coeff)
+        #     loss, prob_vals = util.run_epoch(session, test_model, full_data,
+        #         training=False, testing=True, batch_size = minibatch_size)
+        #     print 'Test Loss (should be low): {}'.format(loss)
+        #     util.accuracy(prob_vals, targets, unrolled_lengths, config)
+
         # SAMPLING SESSION #
         with tf.variable_scope("trivial", reuse=True):
             sample_model = NottinghamModel(dict(config, **{
-                "batch_size": 1,
                 "time_batch_len": 1
             }), training=False)
 
@@ -152,7 +160,7 @@ if __name__ == '__main__':
         # chord = sequences[0][0]
         chord = np.zeros(dims)
         seq = [chord]
-        state = sample_model.initial_state.eval()
+        state = sample_model.get_cell_zero_state(session, 1)
         sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
 
         for i in range(note_length * 16 * max_repeats * 2):

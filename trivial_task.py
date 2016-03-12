@@ -17,6 +17,7 @@ if __name__ == '__main__':
     dims = midi_util.RANGE
     max_repeats = 10
     batch_size = 100
+    minibatch_size = 78
     time_batch_len = 8
 
     lr = 1e-2
@@ -39,13 +40,6 @@ if __name__ == '__main__':
     assert len(notes) == len(targets) == len(rolled_lengths)
     assert notes[0].shape[1] == len(unrolled_lengths)
 
-    # duplicate to (batch_size x seq_length x num_dims)
-    # chord_seq = np.tile(chord_seq, (batch_size, 1, 1))
-    # # swap axis for (seq_length x batch_size x num_dims)
-    # data = np.swapaxes(chord_seq, 0, 1)
-    # # split into time batches
-    # data = np.split(data, num_repeats, axis=0)
-
     full_data = {
         "data": notes,
         "targets":  targets,
@@ -58,7 +52,6 @@ if __name__ == '__main__':
         "hidden_size": 100,
         "num_layers": 1,
         "dropout_prob": 1.0,
-        "batch_size": batch_size,
         "time_batch_len": time_batch_len,
         "cell_type": "lstm"
     } 
@@ -71,30 +64,38 @@ if __name__ == '__main__':
 
         tf.initialize_all_variables().run()
 
-        # training
+        # # training
         train_model.assign_lr(session, lr)
         train_model.assign_lr_decay(session, lr_decay)
         time_start = time.time()
         for i in range(max_epochs):
-            loss = util.run_epoch(session, train_model, full_data, training=True)
+            loss = util.run_epoch(session, train_model, full_data, training=True,
+                                  batch_size = minibatch_size)
             if i % 10 == 0 and i != 0:
                 print 'Epoch {}, Loss: {}, Time Per Epoch {}'.\
                     format(i, loss, (time.time() - time_start) / i)
             if loss < loss_convergence:
                 break
 
+        # TESTING
+        with tf.variable_scope("trivial", reuse=True):
+            test_model = Model(config)
+            loss, prob_vals = util.run_epoch(session, test_model, full_data,
+                training=False, testing=True, batch_size = minibatch_size)
+            print 'Test Loss (should be low): {}'.format(loss)
+            util.accuracy(prob_vals, targets, unrolled_lengths, config)
+        
         # SAMPLING SESSION #
         with tf.variable_scope("trivial", reuse=True):
             sample_model = Model(dict(config, **{
-                "batch_size": 1,
                 "time_batch_len": 1
             }), training=False)
 
         # start with the first chord
         chord = midi_util.cmaj()
         seq = [chord]
-        state = sample_model.initial_state.eval()
-        sampler = sampling.Sampler(verbose=True)
+        state = sample_model.get_cell_zero_state(session, 1)
+        sampler = sampling.Sampler(verbose=False)
 
         for i in range(4 * max_repeats * 2):
             chord = np.reshape(chord, [1, 1, dims])

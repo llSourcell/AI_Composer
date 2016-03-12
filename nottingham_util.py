@@ -215,7 +215,6 @@ class NottinghamMidiWriter(midi_util.MidiWriter):
         super(NottinghamMidiWriter, self).__init__(verbose)
         self.idx_to_chord = { i: c for c, i in chord_to_idx.items() }
         self.note_range = NOTTINGHAM_MELODY_RANGE + len(self.idx_to_chord)
-        print self.idx_to_chord
 
     def dereference_chord(self, idx):
         if idx not in self.idx_to_chord:
@@ -345,13 +344,12 @@ class NottinghamSampler(object):
 
 def accuracy(raw_probs, test_sequences, config, num_samples=1):
     
-    batch_size = config["batch_size"]
     time_batch_len = config["time_batch_len"]
     input_dim = config["input_dim"]
 
     # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
     test_probs = np.concatenate(raw_probs, axis=0)
-    print test_probs.shape
+    # print test_probs.shape
 
     def calc_accuracy():
         total = 0
