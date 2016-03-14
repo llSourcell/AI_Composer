@@ -39,7 +39,7 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, ve
     
     for d in ["train", "test", "valid"]:
         print "Parsing {}...".format(d)
-        parsed = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=verbose)
+        parsed = parse_nottingham_directory("data/Nottingham/{}".format(d), time_step, verbose=False)
         metadata = [s[0] for s in parsed]
         seqs = [s[1] for s in parsed]
         data[d] = seqs
@@ -66,6 +66,7 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, ve
         print "Number of chords: {}".format(num_chords)
         print "Max Sequence length: {}".format(max_seq)
         print "Avg Sequence length: {}".format(avg_seq)
+        print "Num Sequences: {}".format(len(seq_lens))
 
     def combine(melody, harmony):
         full = np.zeros((melody.shape[0], NOTTINGHAM_MELODY_RANGE + num_chords))
@@ -109,12 +110,11 @@ def parse_nottingham_directory(input_dir, time_step, verbose=False):
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
-        parse_nottingham_to_sequence(f, time_step=time_step, verbose=True) \
+        parse_nottingham_to_sequence(f, time_step=time_step, verbose=verbose) \
         for f in files ]
 
     if verbose:
         print "Total sequences: {}".format(len(sequences))
-        # print "Filtering {} ({})".format(len([x == None for x in sequences]), input_dir)
     
     # filter out the non 2-track MIDI's
     sequences = filter(lambda x: x[1] != None, sequences)
@@ -179,7 +179,6 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
         notes = np.where(harmony_sequence[i] == 1)[0]
         if len(notes) > 0:
             notes_shift = [ mingus.core.notes.int_to_note(h%12) for h in notes]
-            # notes_shift = list(set(notes_shift)) # remove duplicates
             chord = mingus.core.chords.determine(notes_shift, shorthand=True)
             if len(chord) == 0:
                 # try flat combinations
@@ -354,6 +353,7 @@ def accuracy(raw_probs, test_sequences, config, num_samples=1):
     def calc_accuracy():
         total = 0
         melody_correct, harmony_correct = 0, 0
+        melody_incorrect, harmony_incorrect = 0, 0
         for seq_idx, seq in enumerate(test_sequences):
             for step_idx in range(seq.shape[0]):
                 if step_idx == 0:
@@ -378,43 +378,49 @@ def accuracy(raw_probs, test_sequences, config, num_samples=1):
                 assert len(melody_target) == 1
                 if melody_target == melody:
                     melody_correct += 1
+                else:
+                    melody_incorrect += 1
 
                 harmony_target = np.nonzero(seq[step_idx, r:])[0] + NOTTINGHAM_MELODY_RANGE
                 assert len(harmony_target) == 1
                 if harmony_target == harmony:
                     harmony_correct += 1
+                else:
+                    harmony_incorrect += 1
 
-                total += 2
-
-        melody_acc = (float(melody_correct) / float(total)) * 2.0
-        harmony_acc = (float(harmony_correct) / float(total)) * 2.0
-        total_acc = float(melody_correct + harmony_correct) / float(total)
-
-        return (melody_acc, harmony_acc, total_acc)
+        return (melody_correct, melody_incorrect, harmony_correct, harmony_incorrect)
 
     maccs, haccs, taccs = [], [], []
     for i in range(num_samples):
         print "Sample {}".format(i)
-        macc, hacc, tacc = calc_accuracy()
-        maccs.append(macc)
-        haccs.append(hacc)
-        taccs.append(tacc)
+        m, mi, h, hi = calc_accuracy()
+        maccs.append( float(m) / float(m + mi))
+        haccs.append( float(h) / float(h + hi))
+        taccs.append( float(m + h) / float(m + h + mi + hi) )
 
-    print "Melody Accuracy: {}".format(sum(maccs)/len(maccs))
-    print "Harmony Accuracy: {}".format(sum(haccs)/len(haccs))
-    print "Total Accuracy: {}".format(sum(taccs)/len(taccs))
+    print "Melody Precision/Recall: {}".format(sum(maccs)/len(maccs))
+    print "Harmony Precision/Recall: {}".format(sum(haccs)/len(haccs))
+    print "Total Precision/Recall: {}".format(sum(taccs)/len(taccs))
 
+def i_vi_iv_v(chord_to_idx, repeats, input_dim):
+    r = NOTTINGHAM_MELODY_RANGE
 
-    # print 'Total Notes: {}'.format(total)
-    # print 'Melody Accuracy: {} ({}/{})'.format((float(melody_correct) / float(total)) * 2.0,
-    #                                            melody_correct,
-    #                                            total / 2)
-    # print 'Harmony Accuracy: {} ({}/{})'.format((float(harmony_correct) / float(total)) * 2.0,
-    #                                             harmony_correct,
-    #                                             total / 2)
-    # print 'Total Accuracy: {} ({}/{})'.format(float(melody_correct + harmony_correct) / float(total),
-    #                                           melody_correct + harmony_correct,
-    #                                           total)
+    i = np.zeros(input_dim)
+    i[r + chord_to_idx['CM']] = 1
+
+    vi = np.zeros(input_dim)
+    vi[r + chord_to_idx['Am']] = 1
+
+    iv = np.zeros(input_dim)
+    iv[r + chord_to_idx['FM']] = 1
+
+    v = np.zeros(input_dim)
+    v[r + chord_to_idx['GM']] = 1
+
+    full_seq = [i] * 16 + [vi] * 16 + [iv] * 16 + [v] * 16
+    full_seq = full_seq * repeats
+    
+    return full_seq
 
 if __name__ == '__main__':
 
@@ -425,10 +431,10 @@ if __name__ == '__main__':
     # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_3.mid", time_step, verbose=True)
     # pprint(zip(range(len(harm)), harm))
 
-    with open(PICKLE_LOC, 'r') as f:
-        p = cPickle.load(f)
-    writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    for i in range(len(p['train'])):
-        writer.dump_sequence_to_midi(p['train'][i], '/tmp/{}.midi'.format(p['train_metadata'][i]['name']), time_step, resolution)
-    for i in range(len(p['test'])):
-        writer.dump_sequence_to_midi(p['test'][i], '/tmp/{}.midi'.format(p['test_metadata'][i]['name']), time_step, resolution)
+    # with open(PICKLE_LOC, 'r') as f:
+    #     p = cPickle.load(f)
+    # writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
+    # for i in range(len(p['train'])):
+    #     writer.dump_sequence_to_midi(p['train'][i], '/tmp/{}.midi'.format(p['train_metadata'][i]['name']), time_step, resolution)
+    # for i in range(len(p['test'])):
+    #     writer.dump_sequence_to_midi(p['test'][i], '/tmp/{}.midi'.format(p['test_metadata'][i]['name']), time_step, resolution)

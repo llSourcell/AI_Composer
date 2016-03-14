@@ -28,6 +28,8 @@ def prepare_softmax_targets(data, unrolled_lengths):
     return data, labels
 
 def prepare_targets(data, unrolled_lengths):
+    """ HACK: targets AND data for all irrelevant time steps are 0
+    so that cross entropy returns 0 """
     # roll back the time steps axis to get the target of each example
     targets = np.roll(data, -1, axis=0)
 
@@ -199,8 +201,9 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
         prob_vals = None
     if training:
         target_tensors.append(model.train_step)
-        #TODO: remove
-        # target_tensors.append(model.concat_losses)
+    
+    #TODO: remove
+    target_tensors.append(model.concat_losses)
 
     total_examples = data["data"][0].shape[1]
     if batch_size < 0:
@@ -212,19 +215,7 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
     num_batches = int(math.ceil(float(total_examples)/batch_size))
     losses = list()
     for batch in range(num_batches):
-        loss = 0
         probs = list()
-        # if batch of data the final, it may be too small
-        # if batch == num_batches-1:
-        #     batches = [(tb[:, (batch*batch_size):, :]) 
-        #         for tb in data["data"]]
-        #     targets = [(tb[:, (batch*batch_size):, :])
-        #         for tb in data["targets"]]
-        #     lens = [lens[(batch*batch_size):]
-        #         for lens in data["seq_lengths"]]
-        #     unrolled = data["unrolled_lengths"][(batch_size*batch):]
-        #     state = model.get_cell_zero_state(session, len(unrolled))
-        # else:
 
         batches = [tb[:, (batch*batch_size):((batch+1)*batch_size), :]
                     for tb in data["data"]]
@@ -233,14 +224,6 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
         lens = [lens[(batch*batch_size):((batch+1)*batch_size)]
                 for lens in data["seq_lengths"]]
         unrolled = data["unrolled_lengths"][(batch*batch_size):((batch+1)*batch_size)]
-
-        # if softmax
-        # if len(data["targets"][0].shape) == 3:
-        # elif len(data["targets"][0].shape) == 2:
-        #     targets = [tb[:, (batch*batch_size):((batch+1)*batch_size)]
-        #         for tb in data["targets"]]
-        # else:
-        #     raise Exception("Batching error")
 
         state = model.get_cell_zero_state(session, len(unrolled))
         for t in range(len(batches)):
@@ -254,22 +237,23 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
             results = session.run(target_tensors, feed_dict=feed_dict)
 
             # print loss
-            loss += results[0]
+            losses.append(results[0])
+            # print results[0]
             state = results[1]
             if testing:
                 probs.append(results[2])
 
             # print lens[t]
-            # print results[3]
+            # print results[-1]
         
         if testing:
             if not prob_vals:
                 prob_vals = probs
             else:
                 prob_vals = [np.hstack((prob_vals[i], probs[i])) for i in range(len(prob_vals))]
-        losses.append(loss)
 
     loss = sum(losses) / len(losses)
+
     if testing:
         return [loss, prob_vals]
     else:
@@ -302,4 +286,6 @@ def accuracy(raw_probs, raw_targets, unrolled_lengths, config, num_samples=20):
                 
     accuracy = (float(true_positives) / (true_positives + false_positives + false_negatives)) 
 
+    print "Precision: {}".format(float(true_positives) / (float(true_positives + false_positives)))
+    print "Recall: {}".format(float(true_positives) / (float(true_positives + false_negatives)))
     print "Accuracy: {}".format(accuracy)

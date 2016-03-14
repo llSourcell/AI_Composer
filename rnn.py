@@ -15,14 +15,18 @@ from model import Model, NottinghamModel
 
 ###############################################################################
 # TODO:
-# ` 1. batch gradient descent and use full sequences
 #   2. add dropout to the softmax layer?
-#   3. linear search over melody coeffecients
 ###############################################################################
 
-def make_model_name(layers, units):
-    model_name = "nl_" + str(layers) + \
-                 "_hs_" + str(units)
+def make_model_name(layers, units, melody_coeff=None):
+    if melody_coeff:
+        model_name = "nl_" + str(layers) + \
+                     "_hs_" + str(units) + \
+                     "_co_" + str(melody_coeff).replace(".", "p")
+    else:
+        model_name = "nl_" + str(layers) + \
+                     "_hs_" + str(units)
+
     return model_name
 
 if __name__ == '__main__':
@@ -32,16 +36,14 @@ if __name__ == '__main__':
     parser.add_argument('--softmax', action='store_true', default=False)
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--temp', type=float, default=0.2)
     parser.add_argument('--num_epochs', type=int, default=200)
-    # parser.add_argument('--learning_rate', type=float, default=1e-2)
-    parser.add_argument('--learning_rate', type=float, default=1e-3)
-    parser.add_argument('--learning_rate_decay', type=float, default=0.90)
-    parser.add_argument('--early_stopping', type=float, default=0.05,
+    parser.add_argument('--early_stopping', type=float, default=0.10,
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
     parser.add_argument('--sample_melody', action='store_true', default=False)
     parser.add_argument('--sample_harmony', action='store_true', default=False)
+    parser.add_argument('--sample_seq', type=str, default='random',
+        choices = ['random', 'chords'])
     parser.add_argument('--conditioning', type=int, default=-1)
 
     parser.add_argument('--model_dir', type=str, default='models')
@@ -51,10 +53,15 @@ if __name__ == '__main__':
 
     parser.add_argument('--num_layers', type=int, default=1)
     parser.add_argument('--hidden_size', type=int, default=150)
+    parser.add_argument('--melody_coeff', type=float, default=-1)
 
     args = parser.parse_args()
 
+    learning_rate_decay = 0.9
+
     if args.softmax:
+        learning_rate = 1e-3
+
         resolution = 480
         time_step = 120
         time_batch_len = 100
@@ -74,13 +81,15 @@ if __name__ == '__main__':
         charts_suffix = '_softmax.png'
     else:
         if args.dataset == 'bach':
+            learning_rate = 1e-2
             data_dir = 'data/JSBChorales'
             resolution = 100
             time_step = 120
-            time_batch_len = 100 # use the longest seq length
+            time_batch_len = 100 
             max_time_batches = -1 
             batch_size = 100
         elif args.dataset == 'nottingham':
+            learning_rate = 1e-3
             data_dir = 'data/Nottingham'
             resolution = 480
             time_step = 120
@@ -121,8 +130,12 @@ if __name__ == '__main__':
         best_model_name = None
 
         for melody_coeff in [0.5]:
-            for num_layers in [3]:
-                for hidden_size in [150]:
+            # for num_layers in [3]:
+            #     for hidden_size in [75, 100]:
+            for num_layers in [1]:
+                for hidden_size in [50]:
+
+                    # model_name = make_model_name(num_layers, hidden_size, melody_coeff)
                     model_name = make_model_name(num_layers, hidden_size)
 
                     config = dict(default_config, **{
@@ -141,9 +154,10 @@ if __name__ == '__main__':
                         saver = tf.train.Saver(tf.all_variables())
                         tf.initialize_all_variables().run()
 
-                        train_model.assign_lr(session, args.learning_rate)
-                        train_model.assign_lr_decay(session, args.learning_rate_decay)
-                        train_model.assign_melody_coeff(session, melody_coeff)
+                        train_model.assign_lr(session, learning_rate)
+                        train_model.assign_lr_decay(session, learning_rate_decay)
+                        if args.softmax:
+                            train_model.assign_melody_coeff(session, melody_coeff)
 
                         # training
                         early_stop_best_loss = None
@@ -187,9 +201,9 @@ if __name__ == '__main__':
                         # set loss axis max to 20
                         axes = plt.gca()
                         if args.softmax:
-                            axes.set_ylim([0, 20])
-                        else:
                             axes.set_ylim([0, 2])
+                        else:
+                            axes.set_ylim([0, 100])
                         plt.plot([t[0] for t in train_losses], [t[1] for t in train_losses])
                         plt.plot([t[0] for t in valid_losses], [t[1] for t in valid_losses])
                         plt.legend(['Train Loss', 'Validation Loss'])
@@ -208,7 +222,8 @@ if __name__ == '__main__':
         sample_model_name = best_model_name
 
     else:
-        sample_model_name = make_model_name(args.num_layers, args.hidden_size)
+        sample_model_name = make_model_name(args.num_layers, args.hidden_size, 
+            args.melody_coeff if args.melody_coeff > 0 else None)
 
 
     # # SAMPLING SESSION #
@@ -236,6 +251,8 @@ if __name__ == '__main__':
 
         # Deterministic Testing
         if args.test: 
+            if args.softmax:
+                print "Using melody_coeff: {}".format(test_model.melody_coeff.eval())
             test_loss, test_probs = util.run_epoch(session, test_model, 
                                                    data["test"], 
                                                    training=False, testing=True)
@@ -250,12 +267,24 @@ if __name__ == '__main__':
 
         # start with the first chord
         if do_sampling:
+
             state = sampling_model.get_cell_zero_state(session, 1)
-            sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[1]))
-            sampling_length = max(data["test"]["unrolled_lengths"][sample_index], args.sample_length)
-            print "Sampling File: {} ({} time steps)".format(
-                data["test"]["metadata"][sample_index]['name'], sampling_length)
-            chord = data["test"]["data"][0][0, sample_index, :]
+
+            if args.sample_seq == 'chords':
+                # 16 - one measure, 64 - chord progression
+                repeats = 16
+                sampling_length = 64 * repeats
+                sample_seq = nottingham_util.i_vi_iv_v(chord_to_idx, repeats, input_dim)
+                print 'Sampling melody using a I, VI, IV, V progression'
+            else:
+                sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[1]))
+                sampling_length = max(data["test"]["unrolled_lengths"][sample_index], args.sample_length)
+                sample_seq = [data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :] for
+                    i in range(sampling_length)]
+                print "Sampling File: {} ({} time steps)".format(
+                    data["test"]["metadata"][sample_index]['name'], sampling_length)
+
+            chord = sample_seq[0]
             seq = [chord]
 
             if args.conditioning > 0:
@@ -267,7 +296,7 @@ if __name__ == '__main__':
                         sampling_model.seq_input_lengths: [1]
                     }
                     state = session.run(sampling_model.final_state, feed_dict=feed)
-                    chord = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :]
+                    chord = sample_seq[i]
                     seq.append(chord)
 
             if args.softmax:
@@ -275,7 +304,10 @@ if __name__ == '__main__':
                 sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
             else:
                 writer = midi_util.MidiWriter()
-                sampler = sampling.Sampler(min_prob = args.temp, verbose=False)
+                # if args.dataset == 'bach':
+                #     sampler = sampling.Sampler(method = 'static', num_notes = 4, verbose=False)
+                # else:
+                sampler = sampling.Sampler(verbose=False)
 
             for i in range(max(sampling_length - len(seq), 0)):
                 seq_input = np.reshape(chord, [1, 1, input_dim])
@@ -294,10 +326,12 @@ if __name__ == '__main__':
                     r = nottingham_util.NOTTINGHAM_MELODY_RANGE
                     if args.sample_melody:
                         chord[r:] = 0
-                        chord[r:] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][r:]
+                        # chord[r:] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][r:]
+                        chord[r:] = sample_seq[i][r:]
                     elif args.sample_harmony:
                         chord[:r] = 0
-                        chord[:r] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][:r]
+                        # chord[:r] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][:r]
+                        chord[r:] = sample_seq[i][:r]
 
                 seq.append(chord)
 

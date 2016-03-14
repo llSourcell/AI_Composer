@@ -23,7 +23,7 @@ if __name__ == '__main__':
     lr = 1e-2
     lr_decay = 0.9
     max_epochs = 1000
-    loss_convergence = 0.001
+    loss_convergence = 0.0001
 
     # reshape to a (seq_length x num_dims)
     # bunch of variable length progressions

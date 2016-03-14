@@ -75,11 +75,29 @@ class Model(object):
     def init_loss(self, outputs, _):
         self.seq_targets = \
             tf.placeholder(tf.float32, [self.time_batch_len, None, self.input_dim])
-        batch_size = tf.shape(self.seq_targets)[1]
-        losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.seq_targets)
-        loss_per_seq = tf.reduce_sum(losses, [0, 2])
-        seq_length_norm = tf.div(loss_per_seq, self.unrolled_lengths)
-        return tf.reduce_sum(seq_length_norm) / tf.to_float(batch_size)
+
+        batch_size = tf.shape(self.seq_input)
+
+        # losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.seq_targets)
+        # self.concat_losses = tf.reduce_sum(losses, [0, 2])
+        # seq_length_norm = tf.div(self.concat_losses, self.unrolled_lengths)
+        # return tf.reduce_sum(seq_length_norm) / tf.to_float(batch_size)
+
+        self.concat_losses = tf.zeros_like(self.seq_input_lengths, dtype=tf.float32)
+        ts = tf.constant(0)
+        for output_ts, target_ts in zip(tf.unpack(outputs), tf.unpack(self.seq_targets)):
+            cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(output_ts, target_ts)
+            by_batches = tf.reduce_sum(cross_ent, [1])
+            good_seqs = tf.less(ts, self.seq_input_lengths)
+            masked = tf.select(tf.less(ts, self.seq_input_lengths), by_batches, 
+                tf.zeros_like(self.seq_input_lengths, dtype=tf.float32))
+            masked = tf.div(masked, tf.to_float(tf.maximum(self.seq_input_lengths, 
+                                                tf.ones_like(self.seq_input_lengths))))
+
+            self.concat_losses = tf.add(self.concat_losses, masked)
+            ts = tf.add(ts, 1)
+
+        return tf.reduce_sum(self.concat_losses) / tf.to_float(batch_size[0])
 
     def calculate_probs(self, logits):
         return tf.sigmoid(logits)
@@ -136,7 +154,8 @@ class NottinghamModel(Model):
         #         harmony_loss = tf.add(hloss, harmony_loss)
         # concat_losses = tf.add(self.melody_coeff*melody_loss, (1-self.melody_coeff)*harmony_loss)
 
-        seq_length_norm = tf.div(self.concat_losses, self.unrolled_lengths)
+        seq_length_norm = tf.div(self.concat_losses, 
+            tf.to_float(tf.maximum(self.seq_input_lengths, tf.ones_like(self.seq_input_lengths))))
         return tf.reduce_sum(seq_length_norm) / tf.to_float(batch_size)
 
     def calculate_probs(self, logits):
