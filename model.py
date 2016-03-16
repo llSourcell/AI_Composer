@@ -10,7 +10,6 @@ class Model(object):
     """ RNN Model """
     
     def __init__(self, config, training=False):
-
         self.time_batch_len = time_batch_len = config["time_batch_len"]
         self.input_dim = input_dim = config["input_dim"]
         hidden_size = config["hidden_size"]
@@ -51,10 +50,6 @@ class Model(object):
 
         self.seq_input = \
             tf.placeholder(tf.float32, shape=[time_batch_len, None, input_dim])
-        self.seq_input_lengths = \
-            tf.placeholder(tf.int32, [None])
-        self.unrolled_lengths = \
-            tf.placeholder(tf.float32, [None])
 
         batch_size = tf.shape(self.seq_input)[0]
         self.initial_state = self.cell.zero_state(batch_size, tf.float32)
@@ -62,14 +57,12 @@ class Model(object):
 
         # rnn outputs a list of [batch_size x H] outputs
         outputs_list, self.final_state = rnn.rnn(self.cell, inputs_list, 
-                                                 initial_state=self.initial_state,
-                                                 sequence_length=self.seq_input_lengths)
+                                                 initial_state=self.initial_state)
 
         # logits = tf.pack([tf.matmul(outputs_list[t], output_W) + output_b for t in range(time_batch_len)])
 
         # TODO: verify if the below is faster and correct
         outputs = tf.pack(outputs_list)
-        # outputs_concat = tf.reshape(outputs, [time_batch_len * batch_size, hidden_size])
         outputs_concat = tf.reshape(outputs, [-1, hidden_size])
         logits_concat = tf.matmul(outputs_concat, output_W) + output_b
         logits = tf.reshape(logits_concat, [time_batch_len, -1, input_dim])
@@ -85,22 +78,8 @@ class Model(object):
             tf.placeholder(tf.float32, [self.time_batch_len, None, self.input_dim])
 
         batch_size = tf.shape(self.seq_input)
-
-        self.concat_losses = tf.zeros_like(self.seq_input_lengths, dtype=tf.float32)
-        ts = tf.constant(0)
-        for output_ts, target_ts in zip(tf.unpack(outputs), tf.unpack(self.seq_targets)):
-            cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(output_ts, target_ts)
-            by_batches = tf.reduce_sum(cross_ent, [1])
-            masked = tf.select(tf.less(ts, self.seq_input_lengths), by_batches, 
-                tf.zeros_like(self.concat_losses, dtype=tf.float32))
-            self.concat_losses = tf.add(self.concat_losses, masked)
-            ts = tf.add(ts, 1)
-
-        # self.concat_losses = tf.truediv(self.concat_losses, 
-        #     tf.to_float(tf.maximum(self.seq_input_lengths, 
-        #                tf.ones_like(self.seq_input_lengths))))
-        # return tf.reduce_mean(tf.boolean_mask(self.concat_losses, tf.greater(self.concat_losses, 0)))
-        return tf.reduce_sum(self.concat_losses)
+        cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.seq_targets)
+        return tf.reduce_sum(cross_ent) / self.time_batch_len / tf.to_float(batch_size)
 
     def calculate_probs(self, logits):
         return tf.sigmoid(logits)
@@ -136,17 +115,7 @@ class NottinghamModel(Model):
             targets_concat[:, 1])
         losses = tf.add(self.melody_coeff * melody_loss, (1 - self.melody_coeff) * harmony_loss)
 
-        # return tf.reduce_sum(losses) / tf.to_float(batch_size)
-        return tf.reduce_sum(losses)
-
-        # return tf.reduce_mean(tf.boolean_mask(losses, tf.greater(losses, 0)))
-        # seq_length_norm = tf.reduce_sum(tf.reshape(losses, [self.time_batch_len, -1]), 0)
-        # self.concat_losses = tf.div(seq_length_norm, self.unrolled_lengths)
-        # TODO: see if this improves things?
-        # self.concat_losses = tf.truediv(self.concat_losses, 
-        #     tf.to_float(tf.maximum(self.seq_input_lengths, 
-        #                tf.ones_like(self.seq_input_lengths))))
-        # return tf.reduce_sum(self.concat_losses) / tf.to_float(batch_size)
+        return tf.reduce_sum(losses) / self.time_batch_len / tf.to_float(batch_size)
 
     def calculate_probs(self, logits):
         steps = []
@@ -178,9 +147,7 @@ class NottinghamSeparate(Model):
         losses = tf.nn.sparse_softmax_cross_entropy_with_logits( \
             outputs_concat, targets_concat)
 
-        # return tf.reduce_mean(tf.boolean_mask(losses, tf.greater(losses, 0)))
-        # return tf.reduce_sum(losses) / tf.to_float(batch_size)
-        return tf.reduce_sum(losses)
+        return tf.reduce_sum(losses) / self.time_batch_len / tf.to_float(batch_size)
 
     def calculate_probs(self, logits):
         steps = []

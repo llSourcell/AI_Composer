@@ -341,25 +341,23 @@ class NottinghamSampler(object):
         elif self.method == 'sample':
             return self.sample_notes_dist(probs)
 
-def accuracy(raw_probs, test_sequences, config, num_samples=1):
+def accuracy(raw_probs, raw_targets, config, num_samples=1):
     
     time_batch_len = config["time_batch_len"]
     input_dim = config["input_dim"]
 
     # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
     test_probs = np.concatenate(raw_probs, axis=0)
-    # print test_probs.shape
+    test_targets = np.concatenate(raw_targets, axis=0)
 
     def calc_accuracy():
         total = 0
         melody_correct, harmony_correct = 0, 0
         melody_incorrect, harmony_incorrect = 0, 0
-        for seq_idx, seq in enumerate(test_sequences):
-            for step_idx in range(seq.shape[0]):
-                if step_idx == 0:
-                    continue
+        for seq_idx in range(test_targets.shape[1]):
+            for step_idx in range(test_targets.shape[0]):
 
-                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx-1, seq_idx, :])]
+                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx, seq_idx, :])]
                 notes = [n[0] for n in idxed]
                 ps = np.array([n[1] for n in idxed])
                 r = NOTTINGHAM_MELODY_RANGE
@@ -374,15 +372,13 @@ def accuracy(raw_probs, test_sequences, config, num_samples=1):
                 melody = np.random.choice(notes[:r], p=ps[:r])
                 harmony = np.random.choice(notes[r:], p=ps[r:])
 
-                melody_target = np.nonzero(seq[step_idx, :r])[0] 
-                assert len(melody_target) == 1
+                melody_target = test_targets[step_idx, seq_idx, 0]
                 if melody_target == melody:
                     melody_correct += 1
                 else:
                     melody_incorrect += 1
 
-                harmony_target = np.nonzero(seq[step_idx, r:])[0] + NOTTINGHAM_MELODY_RANGE
-                assert len(harmony_target) == 1
+                harmony_target = test_targets[step_idx, seq_idx, 1] + r
                 if harmony_target == harmony:
                     harmony_correct += 1
                 else:

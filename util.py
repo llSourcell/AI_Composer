@@ -7,43 +7,6 @@ import cPickle
 import midi_util
 import nottingham_util
 
-def prepare_softmax_targets(data, unrolled_lengths):
-    """ HACK: targets are -1 for irrelevant time steps so that
-    softmax cross entropy returns zero """
-
-    # roll back the time steps axis to get the target of each example
-    targets = np.roll(data, -1, axis=0)
-
-    r = nottingham_util.NOTTINGHAM_MELODY_RANGE
-    labels = np.ones((targets.shape[0], targets.shape[1], 2), dtype=np.int32) * -1
-    for seq_idx, length in enumerate(unrolled_lengths):
-        labels[:length, seq_idx, 0] = \
-            np.argmax(targets[:length, seq_idx, :r], axis=1)
-        labels[:length, seq_idx, 1] = \
-            np.argmax(targets[:length, seq_idx, r:], axis=1)
-        labels[length:, seq_idx, :] = -1
-        for i in range(length, targets.shape[0]):
-            data[i, seq_idx, :] = 0
-    
-    return data, labels
-
-def prepare_targets(data, unrolled_lengths):
-    """ HACK: targets AND data for all irrelevant time steps are 0
-    so that cross entropy returns 0 """
-    # roll back the time steps axis to get the target of each example
-    targets = np.roll(data, -1, axis=0)
-
-    # set all non-relevant data to zero
-    for seq_idx, length in enumerate(unrolled_lengths):
-        for i in range(length, targets.shape[0]):
-            targets[i, seq_idx, :] = 0
-            data[i, seq_idx, :] = 0
-
-    # sanity check
-    assert targets.shape[0] == data.shape[0]
-
-    return data, targets
-
 def parse_midi_directory(input_dir, time_step):
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
@@ -53,20 +16,21 @@ def parse_midi_directory(input_dir, time_step):
 
     return sequences
 
-def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, 
+def batch_data(sequences, time_batch_len=128, num_time_batches=3,
                softmax=False, verbose=False):
     """
     time_step: dataset-specific time step the MIDI should be broken up into (see parse_midi_to_sequence
                for more details
     time_batch_len: the max unrolling that will take place over BPTT. If -1 then set equal to the length
                     of the longest sequence.
-    max_time_batches: the maximum amount of time batches. Every sequence greater than max_time_batches * 
-                      time_batch_len is thrown away. If -1, there is no max amount of time batches
+    num_time_batches: the amount of time batches; any sequences below this get thrown away
     """
+
+    assert time_batch_len > 0
+    assert num_time_batches > 0
 
     dims = sequences[0].shape[1]
     sequence_lens = [s.shape[0] for s in sequences]
-    longest_seq = max(sequence_lens)
 
     if verbose:
         avg_seq_len = sum(sequence_lens) / len(sequences)
@@ -74,78 +38,50 @@ def batch_data(sequences, time_batch_len=-1, max_time_batches=-1,
         print "Max Sequence Length: {}".format(time_batch_len)
         print "Number of sequences: {}".format(len(sequences))
 
-    if time_batch_len < 0:
-        time_batch_len = longest_seq
-
-    total_time_batches = int(math.ceil(float(longest_seq)/float(time_batch_len)))
-
-    if max_time_batches >= 0:
-        num_time_batches = min(total_time_batches, max_time_batches)
-        max_len = time_batch_len * num_time_batches
-        # filter out any sequences that are too long. 
-        # TODO: is this the right call, or should we just use the first part of the
-        # sequence?
-        sequences = filter(lambda x: len(x) <= max_len, sequences)
-        sequence_lens = [s.shape[0] for s in sequences]
-    else:
-        num_time_batches = total_time_batches
+    # add one because we can't use the last time step as a target
+    seq_length_cutoff = time_batch_len * num_time_batches + 1
+    sequences = filter(lambda s: s.shape[0] >= seq_length_cutoff, sequences)
 
     if verbose:
-        print "Number of time batches: {}".format(num_time_batches)
         print "Number of sequences after filtering: {}".format(len(sequences))
 
-    def pad_junk(data):
-        if len(data.shape) == 2:
-            time_steps = time_batch_len * num_time_batches
-            assert data.shape[0] <= time_steps
-            # HACK: make the junk data zeros
-            junk_data = np.zeros((time_steps - data.shape[0], data.shape[1]))
-            data = np.vstack((data, junk_data))
-        else:
-            raise Exception("Batching error in run_epoch")
-        return data
-
-    unsplit = list()
-    unrolled_lengths = list()
-    for sequence in sequences:
-        # subtract one from each length because we can only perform
-        # target matching for the first n-1
-        unrolled_lengths.append(sequence.shape[0] - 1)
-        copy = sequence.copy()
-        copy = pad_junk(copy)
-        unsplit.append(copy)
-
-    stacked = np.dstack(unsplit)
+    sequences = [s[:seq_length_cutoff, :] for s in sequences]
+    stacked = np.dstack(sequences)
     # swap axes so that shape is (SEQ_LENGTH X BATCH_SIZE X INPUT_DIM)
-    all_batches = np.swapaxes(stacked, 1, 2)
+    data = np.swapaxes(stacked, 1, 2)
+    targets = np.roll(data, -1, axis=0)
+
+    # cutoff final time step
+    data = data[:-1, :, :]
+    targets = targets[:-1, :, :]
+
+    assert data.shape == targets.shape
+    assert data.shape[0] == time_batch_len * num_time_batches
+    assert data.shape[1] == len(sequences)
+    assert data.shape[2] == dims
+
     if softmax:
-        all_batches, all_targets = \
-            prepare_softmax_targets(all_batches, unrolled_lengths)
-        assert all_batches.shape[:2] == all_targets.shape[:2]
-    else:
-        all_batches, all_targets = prepare_targets(all_batches, unrolled_lengths)
-        assert all_batches.shape == all_targets.shape
+        r = nottingham_util.NOTTINGHAM_MELODY_RANGE
+        labels = np.ones((targets.shape[0], targets.shape[1], 2), dtype=np.int32)
+        assert np.all(np.sum(targets[:, :, :r], axis=2) == 1)
+        assert np.all(np.sum(targets[:, :, r:], axis=2) == 1)
+        labels[:, :, 0] = np.argmax(targets[:, :, :r], axis=2)
+        labels[:, :, 1] = np.argmax(targets[:, :, r:], axis=2)
+        targets = labels
+        assert targets.shape[:2] == data.shape[:2]
 
-    assert all_batches.shape[1] == len(sequences)
-    assert all_batches.shape[2] == dims
-
-    batches = np.split(all_batches, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
-    targets = np.split(all_targets, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
+    batches = np.split(data, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
+    targets = np.split(targets, [j * time_batch_len for j in range(1, num_time_batches)], axis=0)
 
     assert len(batches) == len(targets) == num_time_batches
 
-    rolled_lengths = [list() for i in range(num_time_batches)]
-    for length in unrolled_lengths: 
-        for time_step in range(num_time_batches): 
-            step = time_step * time_batch_len
-            if length <= step:
-                rolled_lengths[time_step].append(0)
-            else:
-                rolled_lengths[time_step].append(min(time_batch_len, length - step))
+    if softmax:
+        for b, t in zip(batches, targets):
+            assert np.all(np.sum(b, axis=2) == 2)
 
-    return batches, targets, rolled_lengths, unrolled_lengths, 
+    return batches, targets
 
-def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=None):
+def load_data(data_dir, time_step, time_batch_len, num_time_batches, nottingham=None):
 
     data = {}
 
@@ -166,20 +102,13 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
                 'name': f.split("/")[-1].split(".")[0]
             } for f in files]
 
-        if dataset == 'test':
-            mtb = -1
-        else:
-            mtb = max_time_batches
- 
-        notes, targets, seq_lengths, unrolled_lengths = \
-            batch_data(sequences, time_batch_len, mtb, softmax = True if nottingham else False)
+        notes, targets = batch_data(sequences, time_batch_len, num_time_batches, \
+            softmax = True if nottingham else False)
 
         data[dataset] = {
             "data": notes,
             "metadata": metadata,
             "targets": targets,
-            "seq_lengths": seq_lengths,
-            "unrolled_lengths": unrolled_lengths,
             "time_batch_len": time_batch_len
         }
 
@@ -190,7 +119,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 def run_epoch(session, model, data, training=False, testing=False, batch_size=-1, separate=False):
 
     # change each data into a batch of data if it isn't already
-    for n in ["data", "targets", "seq_lengths"]:
+    for n in ["data", "targets"]:
         if not isinstance(data[n], list):
             data[n] = [ data[n] ]
 
@@ -200,9 +129,6 @@ def run_epoch(session, model, data, training=False, testing=False, batch_size=-1
         prob_vals = None
     if training:
         target_tensors.append(model.train_step)
-    
-    #TODO: remove
-    # target_tensors.append(model.concat_losses)
 
     total_examples = data["data"][0].shape[1]
     if batch_size < 0:
@@ -212,7 +138,7 @@ def run_epoch(session, model, data, training=False, testing=False, batch_size=-1
     # 100/100 -> [0]
     # 101/100 -> [0, 1]
     num_batches = int(math.ceil(float(total_examples)/batch_size))
-    losses = 0
+    losses = []
     for batch in range(num_batches):
         probs = list()
 
@@ -226,49 +152,36 @@ def run_epoch(session, model, data, training=False, testing=False, batch_size=-1
 
         batches = [tb[:, (batch*batch_size):((batch+1)*batch_size), :]
                     for tb in data["data"]]
-        lens = [lens[(batch*batch_size):((batch+1)*batch_size)]
-                for lens in data["seq_lengths"]]
-        unrolled = data["unrolled_lengths"][(batch*batch_size):((batch+1)*batch_size)]
+        b_size = batches[0].shape[1]
 
-        b_size = len(unrolled)
         state = model.get_cell_zero_state(session, b_size)
-        # loss = 0
         for t in range(len(batches)):
-            # if there are no sequences in this time batch
-            if sum(lens[t]) == 0:
-                continue
-
             feed_dict = {
                 model.initial_state: state,
                 model.seq_input: batches[t],
                 model.seq_targets: targets[t],
-                model.seq_input_lengths: lens[t],
-                model.unrolled_lengths: unrolled
             }
             results = session.run(target_tensors, feed_dict=feed_dict)
 
-            # losses.append(results[0])
-            losses += results[0]
-            # loss += results[0]
+            losses.append(results[0])
             state = results[1]
             if testing:
                 probs.append(results[2])
         
-        # losses.append(loss)
         if testing:
             if not prob_vals:
                 prob_vals = probs
             else:
                 prob_vals = [np.hstack((prob_vals[i], probs[i])) for i in range(len(prob_vals))]
 
-    loss = losses / sum(data["unrolled_lengths"])
+    loss = sum(losses) / len(losses)
 
     if testing:
         return [loss, prob_vals]
     else:
         return loss
 
-def accuracy(raw_probs, raw_targets, unrolled_lengths, config, num_samples=20):
+def accuracy(raw_probs, raw_targets, config, num_samples=20):
     
     time_batch_len = config["time_batch_len"]
     input_dim = config["input_dim"]
@@ -282,9 +195,6 @@ def accuracy(raw_probs, raw_targets, unrolled_lengths, config, num_samples=20):
         for step_idx in range(test_targets.shape[0]):
 
             # if we've reached the end of the sequence, go to next seq
-            if step_idx >= unrolled_lengths[seq_idx]:
-                break
-
             for note_idx, prob in enumerate(test_probs[step_idx, seq_idx, :]):  
                 num_occurrences = np.random.binomial(num_samples, prob)
                 if test_targets[step_idx, seq_idx, note_idx] == 0.0:

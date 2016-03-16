@@ -28,10 +28,8 @@ if __name__ == '__main__':
 
     parser.add_argument('--model_dir', type=str, default='models')
     parser.add_argument('--charts_dir', type=str, default='charts')
-
     parser.add_argument('--num_layers', type=int, default=1)
     parser.add_argument('--hidden_size', type=int, default=100)
-
 
     args = parser.parse_args()
 
@@ -47,14 +45,13 @@ if __name__ == '__main__':
 
         return model_name
 
-    learning_rate = 5e-3
+    learning_rate = 1e-3
     learning_rate_decay = 0.9
 
-    # learning_rate = 1e-2
     resolution = 480
     time_step = 120
-    time_batch_len = 100
-    max_time_batches = -1
+    time_batch_len = 128
+    num_time_batches = 3
     batch_size = 100
 
     with open(nottingham_util.PICKLE_LOC, 'r') as f:
@@ -62,7 +59,7 @@ if __name__ == '__main__':
         chord_to_idx = pickle['chord_to_idx']
 
     data = util.load_data('', time_step, 
-        time_batch_len, max_time_batches, nottingham=pickle)
+        time_batch_len, num_time_batches, nottingham=pickle)
 
     # cut away unnecessary parts
     r = nottingham_util.NOTTINGHAM_MELODY_RANGE
