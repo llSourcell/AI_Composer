@@ -53,5 +53,7 @@ class Sampler(object):
             return self.sample_notes_bernoulli(probs)
         elif self.method == 'static':
             return self.sample_notes_static(probs)
+        elif self.method == 'min_prob':
+            return self.sample_notes_prob(probs)
         else:
             raise Exception("Unrecognized method: {}".format(self.method))

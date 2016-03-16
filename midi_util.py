@@ -236,9 +236,12 @@ def i_vi_iv_v(n):
     return [cmaj(), amin(), fmaj(), gmaj()] * n
 
 if __name__ == '__main__':
-    test_name = 'data_samples/koopa_troopa_beach.mid'
-    time_step = 64
-    resolution = 1024
+    # test_name = 'data_samples/koopa_troopa_beach.mid'
+    # time_step = 64
+    # resolution = 1024
+    test_name = 'data_samples/bach_chorale.mid'
+    time_step = 120
+    resolution = 100
 
     seq = parse_midi_to_sequence(test_name, time_step)
     writer = MidiWriter(verbose=True) 

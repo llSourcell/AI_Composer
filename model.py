@@ -30,14 +30,22 @@ class Model(object):
             self.lr = tf.Variable(0.0, name="learning_rate", trainable=False)
             self.lr_decay = tf.Variable(0.0, name="learning_rate_decay", trainable=False)
 
-        if cell_type == "vanilla":
-            first_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = input_dim)  
-            hidden_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = hidden_size)
-        else:
-            first_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = input_dim)  
-            hidden_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = hidden_size)
+        def create_cell(input_size, i):
+            # with tf.variable_scope("hidden_{}".format(i)):
+            if cell_type == "vanilla":
+                return rnn_cell.BasicRNNCell(hidden_size, input_size = input_size)
+            else:
+                return rnn_cell.BasicLSTMCell(hidden_size, input_size = input_size)
 
-        self.cell = rnn_cell.MultiRNNCell([first_layer] + [hidden_layer] * (1-num_layers))
+        # if cell_type == "vanilla":
+        #     first_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = input_dim)  
+        #     hidden_layer = rnn_cell.BasicRNNCell(hidden_size, input_size = hidden_size)
+        # else:
+        #     first_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = input_dim)  
+        #     hidden_layer = rnn_cell.BasicLSTMCell(hidden_size, input_size = hidden_size)
+
+        self.cell = rnn_cell.MultiRNNCell(
+            [create_cell(input_dim, 0)] + [create_cell(hidden_size, i) for i in range(1, num_layers)])
         if training and dropout_prob < 1.0:
             self.cell = rnn_cell.DropoutWrapper(self.cell, output_keep_prob = dropout_prob)
 
@@ -78,26 +86,21 @@ class Model(object):
 
         batch_size = tf.shape(self.seq_input)
 
-        # losses = tf.nn.sigmoid_cross_entropy_with_logits(outputs, self.seq_targets)
-        # self.concat_losses = tf.reduce_sum(losses, [0, 2])
-        # seq_length_norm = tf.div(self.concat_losses, self.unrolled_lengths)
-        # return tf.reduce_sum(seq_length_norm) / tf.to_float(batch_size)
-
         self.concat_losses = tf.zeros_like(self.seq_input_lengths, dtype=tf.float32)
         ts = tf.constant(0)
         for output_ts, target_ts in zip(tf.unpack(outputs), tf.unpack(self.seq_targets)):
             cross_ent = tf.nn.sigmoid_cross_entropy_with_logits(output_ts, target_ts)
             by_batches = tf.reduce_sum(cross_ent, [1])
-            good_seqs = tf.less(ts, self.seq_input_lengths)
             masked = tf.select(tf.less(ts, self.seq_input_lengths), by_batches, 
-                tf.zeros_like(self.seq_input_lengths, dtype=tf.float32))
-            masked = tf.div(masked, tf.to_float(tf.maximum(self.seq_input_lengths, 
-                                                tf.ones_like(self.seq_input_lengths))))
-
+                tf.zeros_like(self.concat_losses, dtype=tf.float32))
             self.concat_losses = tf.add(self.concat_losses, masked)
             ts = tf.add(ts, 1)
 
-        return tf.reduce_sum(self.concat_losses) / tf.to_float(batch_size[0])
+        # self.concat_losses = tf.truediv(self.concat_losses, 
+        #     tf.to_float(tf.maximum(self.seq_input_lengths, 
+        #                tf.ones_like(self.seq_input_lengths))))
+        # return tf.reduce_mean(tf.boolean_mask(self.concat_losses, tf.greater(self.concat_losses, 0)))
+        return tf.reduce_sum(self.concat_losses)
 
     def calculate_probs(self, logits):
         return tf.sigmoid(logits)
@@ -132,31 +135,18 @@ class NottinghamModel(Model):
             outputs_concat[:, r:], \
             targets_concat[:, 1])
         losses = tf.add(self.melody_coeff * melody_loss, (1 - self.melody_coeff) * harmony_loss)
-        self.concat_losses = tf.reduce_sum(tf.reshape(losses, [self.time_batch_len, -1]), 0)
 
-        # TODO: is the method below slower?
-        # melody_loss, harmony_loss = None, None
-        # for t in range(self.time_batch_len):
-        #     mloss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-        #         outputs[t, :, :nottingham_util.NOTTINGHAM_MELODY_RANGE], \
-        #         tf.argmax(targets[t, :, :nottingham_util.NOTTINGHAM_MELODY_RANGE], 1))
-        #     if t == 0:
-        #         melody_loss = mloss
-        #     else:
-        #         melody_loss = tf.add(mloss, melody_loss)
-        #
-        #     hloss = tf.nn.sparse_softmax_cross_entropy_with_logits( \
-        #         outputs[t, :, nottingham_util.NOTTINGHAM_MELODY_RANGE:], \
-        #         tf.argmax(targets[t, :, nottingham_util.NOTTINGHAM_MELODY_RANGE:], 1))
-        #     if t == 0:
-        #         harmony_loss = hloss
-        #     else:
-        #         harmony_loss = tf.add(hloss, harmony_loss)
-        # concat_losses = tf.add(self.melody_coeff*melody_loss, (1-self.melody_coeff)*harmony_loss)
+        # return tf.reduce_sum(losses) / tf.to_float(batch_size)
+        return tf.reduce_sum(losses)
 
-        seq_length_norm = tf.div(self.concat_losses, 
-            tf.to_float(tf.maximum(self.seq_input_lengths, tf.ones_like(self.seq_input_lengths))))
-        return tf.reduce_sum(seq_length_norm) / tf.to_float(batch_size)
+        # return tf.reduce_mean(tf.boolean_mask(losses, tf.greater(losses, 0)))
+        # seq_length_norm = tf.reduce_sum(tf.reshape(losses, [self.time_batch_len, -1]), 0)
+        # self.concat_losses = tf.div(seq_length_norm, self.unrolled_lengths)
+        # TODO: see if this improves things?
+        # self.concat_losses = tf.truediv(self.concat_losses, 
+        #     tf.to_float(tf.maximum(self.seq_input_lengths, 
+        #                tf.ones_like(self.seq_input_lengths))))
+        # return tf.reduce_sum(self.concat_losses) / tf.to_float(batch_size)
 
     def calculate_probs(self, logits):
         steps = []
@@ -171,3 +161,30 @@ class NottinghamModel(Model):
             raise Exception("Invalid melody coeffecient")
 
         session.run(tf.assign(self.melody_coeff, melody_coeff))
+
+class NottinghamSeparate(Model):
+
+    def init_loss(self, outputs, outputs_concat):
+        self.seq_targets = \
+            tf.placeholder(tf.int64, [self.time_batch_len, None])
+        batch_size = tf.shape(self.seq_targets)[1]
+
+        with tf.variable_scope("rnnlstm"):
+            self.lr = tf.Variable(0.0, name="learning_rate", trainable=False)
+            self.lr_decay = tf.Variable(0.0, name="learning_rate_decay", trainable=False)
+            self.melody_coeff = tf.Variable(0.5, name="melody_coeff", trainable=False)
+
+        targets_concat = tf.reshape(self.seq_targets, [-1])
+        losses = tf.nn.sparse_softmax_cross_entropy_with_logits( \
+            outputs_concat, targets_concat)
+
+        # return tf.reduce_mean(tf.boolean_mask(losses, tf.greater(losses, 0)))
+        # return tf.reduce_sum(losses) / tf.to_float(batch_size)
+        return tf.reduce_sum(losses)
+
+    def calculate_probs(self, logits):
+        steps = []
+        for t in range(self.time_batch_len):
+            softmax = tf.nn.softmax(logits[t, :, :])
+            steps.append(softmax)
+        return tf.pack(steps)

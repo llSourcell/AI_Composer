@@ -16,16 +16,18 @@ TICKS_PER_QUARTER = 480
 
 if __name__ == '__main__':
     np.random.seed(1)      
+
+    num_layers = 2
     
     max_repeats = 5
     batch_size = 100
-    minibatch_size = 50
-    time_batch_len = 16
+    minibatch_size = 100
+    time_batch_len = 100
     time_step = 120
     melody_coeff = 0.5
 
-    lr = 1e-3
-    lr_decay = 0.8
+    lr = 1e-2
+    lr_decay = 0.9
     max_epochs = 500
     loss_convergence = 0.01
 
@@ -114,8 +116,8 @@ if __name__ == '__main__':
 
     config = {
         "input_dim": dims,
-        "hidden_size": 100,
-        "num_layers": 1,
+        "hidden_size": 50,
+        "num_layers": num_layers,
         "dropout_prob": 1.0,
         "time_batch_len": time_batch_len,
         "cell_type": "lstm"
@@ -142,13 +144,13 @@ if __name__ == '__main__':
                 break
 
         # TESTING
-        # with tf.variable_scope("trivial", reuse=True):
-        #     test_model = NottinghamModel(config)
-        #     # test_model.assign_melody_coeff(session, melody_coeff)
-        #     loss, prob_vals = util.run_epoch(session, test_model, full_data,
-        #         training=False, testing=True, batch_size = minibatch_size)
-        #     print 'Test Loss (should be low): {}'.format(loss)
-        #     util.accuracy(prob_vals, targets, unrolled_lengths, config)
+        with tf.variable_scope("trivial", reuse=True):
+            test_model = NottinghamModel(config)
+            # test_model.assign_melody_coeff(session, melody_coeff)
+            loss, prob_vals = util.run_epoch(session, test_model, full_data,
+                training=False, testing=True, batch_size = minibatch_size)
+            print 'Test Loss (should be low): {}'.format(loss)
+            util.accuracy(prob_vals, targets, unrolled_lengths, config)
 
         # SAMPLING SESSION #
         with tf.variable_scope("trivial", reuse=True):
@@ -161,7 +163,7 @@ if __name__ == '__main__':
         chord = np.zeros(dims)
         seq = [chord]
         state = sample_model.get_cell_zero_state(session, 1)
-        sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=True)
+        sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
 
         for i in range(note_length * 16 * max_repeats * 2):
             chord = np.reshape(chord, [1, 1, dims])

@@ -15,7 +15,7 @@ from model import Model, NottinghamModel
 
 ###############################################################################
 # TODO:
-#   2. add dropout to the softmax layer?
+#   1. shuffle the batches randomly? idk
 ###############################################################################
 
 def make_model_name(layers, units, melody_coeff=None):
@@ -36,7 +36,7 @@ if __name__ == '__main__':
     parser.add_argument('--softmax', action='store_true', default=False)
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--num_epochs', type=int, default=200)
+    parser.add_argument('--num_epochs', type=int, default=1000)
     parser.add_argument('--early_stopping', type=float, default=0.10,
         help="Relative increase over lowest validation error required for early stopping")
     parser.add_argument('--sample_length', type=int, default=200)
@@ -57,15 +57,15 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
+    learning_rate = 5e-3
     learning_rate_decay = 0.9
 
     if args.softmax:
-        learning_rate = 1e-3
-
+        # learning_rate = 1e-2
         resolution = 480
         time_step = 120
         time_batch_len = 100
-        max_time_batches = -1
+        max_time_batches = 10
         batch_size = 100
 
         with open(nottingham_util.PICKLE_LOC, 'r') as f:
@@ -81,20 +81,19 @@ if __name__ == '__main__':
         charts_suffix = '_softmax.png'
     else:
         if args.dataset == 'bach':
-            learning_rate = 1e-2
+            # learning_rate = 1e-2
             data_dir = 'data/JSBChorales'
             resolution = 100
             time_step = 120
-            time_batch_len = 100 
-            max_time_batches = -1 
+            time_batch_len = 100
+            max_time_batches = -1
             batch_size = 100
         elif args.dataset == 'nottingham':
-            learning_rate = 1e-3
             data_dir = 'data/Nottingham'
             resolution = 480
             time_step = 120
             time_batch_len = 100
-            max_time_batches = -1
+            max_time_batches = 10
             batch_size = 100
         else:
             raise Exception("unrecognized dataset")
@@ -129,14 +128,12 @@ if __name__ == '__main__':
         best_valid_loss = None
         best_model_name = None
 
-        for melody_coeff in [0.5]:
-            # for num_layers in [3]:
-            #     for hidden_size in [75, 100]:
+        for melody_coeff in [0.5, 0.0, 1.0, 0.25, 0.75]:
             for num_layers in [1]:
-                for hidden_size in [50]:
+                for hidden_size in [100]:
 
-                    # model_name = make_model_name(num_layers, hidden_size, melody_coeff)
-                    model_name = make_model_name(num_layers, hidden_size)
+                    model_name = make_model_name(num_layers, hidden_size, melody_coeff)
+                    # model_name = make_model_name(num_layers, hidden_size)
 
                     config = dict(default_config, **{
                         "input_dim": input_dim,
@@ -158,6 +155,7 @@ if __name__ == '__main__':
                         train_model.assign_lr_decay(session, learning_rate_decay)
                         if args.softmax:
                             train_model.assign_melody_coeff(session, melody_coeff)
+                            valid_model.assign_melody_coeff(session, melody_coeff)
 
                         # training
                         early_stop_best_loss = None
@@ -169,13 +167,13 @@ if __name__ == '__main__':
                             loss = util.run_epoch(session, train_model, 
                                 data["train"], training=True, batch_size = batch_size)
                             train_losses.append((i, loss))
-                            valid_loss = util.run_epoch(session, valid_model, data["valid"])
-                            valid_losses.append((i, valid_loss))
                             if i == 0:
                                 continue
 
-                            print 'Epoch: {}, Train Loss: {}, Valid Loss: {}, Time Per Epoch: {}'.format(
-                                i, loss, valid_loss, (time.time() - start_time)/i)
+                            print 'Epoch: {}, Train Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
+                            valid_loss = util.run_epoch(session, valid_model, data["valid"], training=False, batch_size = batch_size)
+                            valid_losses.append((i, valid_loss))
+                            print 'Valid Loss: {}'.format(valid_loss)
                             # if it's best validation loss so far, save it
                             if early_stop_best_loss == None:
                                 early_stop_best_loss = valid_loss
@@ -188,6 +186,8 @@ if __name__ == '__main__':
                             elif not start_saving:
                                 start_saving = True 
                                 print 'Valid loss increased for the first time, will start saving models'
+                                saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
+                                saved_flag = True
 
                             # early stop if generalization loss is worst than args.early_stopping
                             if args.early_stopping > 0:
@@ -246,12 +246,14 @@ if __name__ == '__main__':
                 test_model = model_class(test_config)
 
         saver = tf.train.Saver(tf.all_variables())
+        # model_path = os.path.join(args.model_dir + "/3_12_16_softmax", sample_model_name + model_suffix)
         model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
         saver.restore(session, model_path)
 
         # Deterministic Testing
         if args.test: 
             if args.softmax:
+                test_model.assign_melody_coeff(session, args.melody_coeff)
                 print "Using melody_coeff: {}".format(test_model.melody_coeff.eval())
             test_loss, test_probs = util.run_epoch(session, test_model, 
                                                    data["test"], 
@@ -267,7 +269,6 @@ if __name__ == '__main__':
 
         # start with the first chord
         if do_sampling:
-
             state = sampling_model.get_cell_zero_state(session, 1)
 
             if args.sample_seq == 'chords':
@@ -276,13 +277,13 @@ if __name__ == '__main__':
                 sampling_length = 64 * repeats
                 sample_seq = nottingham_util.i_vi_iv_v(chord_to_idx, repeats, input_dim)
                 print 'Sampling melody using a I, VI, IV, V progression'
-            else:
+            if args.sample_seq == 'random':
                 sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[1]))
                 sampling_length = max(data["test"]["unrolled_lengths"][sample_index], args.sample_length)
                 sample_seq = [data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :] for
-                    i in range(sampling_length)]
+                    i in range(data["test"]["unrolled_lengths"][sample_index])]
                 print "Sampling File: {} ({} time steps)".format(
-                    data["test"]["metadata"][sample_index]['name'], sampling_length)
+                    data["test"]["metadata"][sample_index]['name'], len(sample_seq))
 
             chord = sample_seq[0]
             seq = [chord]
@@ -304,10 +305,10 @@ if __name__ == '__main__':
                 sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
             else:
                 writer = midi_util.MidiWriter()
-                # if args.dataset == 'bach':
-                #     sampler = sampling.Sampler(method = 'static', num_notes = 4, verbose=False)
-                # else:
                 sampler = sampling.Sampler(verbose=False)
+                # if args.dataset == 'bach':
+                #     sampler = sampling.Sampler(method = 'min_prob', num_notes = 4, verbose=True)
+                # else:
 
             for i in range(max(sampling_length - len(seq), 0)):
                 seq_input = np.reshape(chord, [1, 1, input_dim])
@@ -331,7 +332,7 @@ if __name__ == '__main__':
                     elif args.sample_harmony:
                         chord[:r] = 0
                         # chord[:r] = data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :][:r]
-                        chord[r:] = sample_seq[i][:r]
+                        chord[:r] = sample_seq[i][:r]
 
                 seq.append(chord)
 

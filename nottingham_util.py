@@ -402,6 +402,56 @@ def accuracy(raw_probs, test_sequences, config, num_samples=1):
     print "Harmony Precision/Recall: {}".format(sum(haccs)/len(haccs))
     print "Total Precision/Recall: {}".format(sum(taccs)/len(taccs))
 
+def seperate_accuracy(raw_probs, test_sequences, config, num_samples=1):
+    
+    time_batch_len = config["time_batch_len"]
+    input_dim = config["input_dim"]
+    choice = config["choice"]
+
+    # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
+    test_probs = np.concatenate(raw_probs, axis=0)
+
+    def calc_accuracy():
+        total_correct = 0
+        total_incorrect = 0
+        for seq_idx, seq in enumerate(test_sequences):
+            for step_idx in range(seq.shape[0]):
+                if step_idx == 0:
+                    continue
+
+                r = NOTTINGHAM_MELODY_RANGE
+                
+                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx-1, seq_idx, :])]
+                notes = [n[0] for n in idxed]
+                ps = np.array([n[1] for n in idxed])
+
+                assert np.allclose(np.sum(ps), 1.0)
+                ps = ps / ps.sum()
+                note = np.random.choice(notes, p=ps)
+
+                if choice == 'melody':
+                    target = np.nonzero(seq[step_idx, :r])[0]
+                elif choice == 'harmony':
+                    target = np.nonzero(seq[step_idx, r:])[0]
+                else:
+                    raise Exception("Did not recognize choice")
+
+                assert len(target) == 1
+                if target == note:
+                    total_correct += 1
+                else:
+                    total_incorrect += 1
+
+        return (total_correct, total_incorrect)
+
+    taccs = []
+    for i in range(num_samples):
+        print "Sample {}".format(i)
+        c, ic = calc_accuracy()
+        taccs.append( float(c) / float(c + ic))
+
+    print "{} Precision/Recall: {}".format(choice, sum(taccs)/len(taccs))
+
 def i_vi_iv_v(chord_to_idx, repeats, input_dim):
     r = NOTTINGHAM_MELODY_RANGE
 

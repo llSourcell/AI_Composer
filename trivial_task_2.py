@@ -17,6 +17,7 @@ if __name__ == '__main__':
     max_repeats = 5
     batch_size = 100
     minibatch_size = 57
+    time_batch_len = 13
 
     lr = 1e-2
     lr_decay = 0.9
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     writer = midi_util.MidiWriter(verbose=True) 
     writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=120, resolution=100)
 
-    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = 4, max_time_batches = -1)
+    notes, targets, rolled_lengths, unrolled_lengths = util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
 
     assert len(notes) == len(targets) == len(rolled_lengths)
     assert notes[0].shape[1] == len(unrolled_lengths)
@@ -53,7 +54,7 @@ if __name__ == '__main__':
         "hidden_size": 100,
         "num_layers": 1,
         "dropout_prob": 1.0,
-        "time_batch_len": 4,
+        "time_batch_len": time_batch_len,
         "cell_type": "lstm"
     } 
 
@@ -86,7 +87,7 @@ if __name__ == '__main__':
         chord = midi_util.cmaj()
         seq = [chord]
         state = sample_model.get_cell_zero_state(session, 1)
-        sampler = sampling.Sampler(verbose=True)
+        sampler = sampling.Sampler(verbose=False)
 
         for i in range(8 * max_repeats * 2):
             chord = np.reshape(chord, [1, 1, dims])

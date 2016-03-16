@@ -54,7 +54,7 @@ def parse_midi_directory(input_dir, time_step):
     return sequences
 
 def batch_data(sequences, time_batch_len=-1, max_time_batches=-1, 
-        softmax=False, verbose=False):
+               softmax=False, verbose=False):
     """
     time_step: dataset-specific time step the MIDI should be broken up into (see parse_midi_to_sequence
                for more details
@@ -157,7 +157,6 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
         if nottingham:
             sequences = pickle[dataset]
             metadata = pickle[dataset + '_metadata']
-            # sequences = [pickle[dataset][0]]
         else:
             sf = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
             sequences = [s[1] for s in sf]
@@ -188,7 +187,7 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
     return data
 
-def run_epoch(session, model, data, training=False, testing=False, softmax_labels=None, batch_size=-1):
+def run_epoch(session, model, data, training=False, testing=False, batch_size=-1, separate=False):
 
     # change each data into a batch of data if it isn't already
     for n in ["data", "targets", "seq_lengths"]:
@@ -203,7 +202,7 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
         target_tensors.append(model.train_step)
     
     #TODO: remove
-    target_tensors.append(model.concat_losses)
+    # target_tensors.append(model.concat_losses)
 
     total_examples = data["data"][0].shape[1]
     if batch_size < 0:
@@ -213,20 +212,32 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
     # 100/100 -> [0]
     # 101/100 -> [0, 1]
     num_batches = int(math.ceil(float(total_examples)/batch_size))
-    losses = list()
+    losses = 0
     for batch in range(num_batches):
         probs = list()
 
+        # HACK: handle special separate case:
+        if separate:
+            targets = [tb[:, (batch*batch_size):((batch+1)*batch_size)]
+                        for tb in data["targets"]]
+        else:
+            targets = [tb[:, (batch*batch_size):((batch+1)*batch_size), :]
+                        for tb in data["targets"]]
+
         batches = [tb[:, (batch*batch_size):((batch+1)*batch_size), :]
                     for tb in data["data"]]
-        targets = [tb[:, (batch*batch_size):((batch+1)*batch_size), :]
-                    for tb in data["targets"]]
         lens = [lens[(batch*batch_size):((batch+1)*batch_size)]
                 for lens in data["seq_lengths"]]
         unrolled = data["unrolled_lengths"][(batch*batch_size):((batch+1)*batch_size)]
 
-        state = model.get_cell_zero_state(session, len(unrolled))
+        b_size = len(unrolled)
+        state = model.get_cell_zero_state(session, b_size)
+        # loss = 0
         for t in range(len(batches)):
+            # if there are no sequences in this time batch
+            if sum(lens[t]) == 0:
+                continue
+
             feed_dict = {
                 model.initial_state: state,
                 model.seq_input: batches[t],
@@ -236,23 +247,21 @@ def run_epoch(session, model, data, training=False, testing=False, softmax_label
             }
             results = session.run(target_tensors, feed_dict=feed_dict)
 
-            # print loss
-            losses.append(results[0])
-            # print results[0]
+            # losses.append(results[0])
+            losses += results[0]
+            # loss += results[0]
             state = results[1]
             if testing:
                 probs.append(results[2])
-
-            # print lens[t]
-            # print results[-1]
         
+        # losses.append(loss)
         if testing:
             if not prob_vals:
                 prob_vals = probs
             else:
                 prob_vals = [np.hstack((prob_vals[i], probs[i])) for i in range(len(prob_vals))]
 
-    loss = sum(losses) / len(losses)
+    loss = losses / sum(data["unrolled_lengths"])
 
     if testing:
         return [loss, prob_vals]
@@ -284,7 +293,7 @@ def accuracy(raw_probs, raw_targets, unrolled_lengths, config, num_samples=20):
                     false_negatives += (num_samples - num_occurrences)
                     true_positives += num_occurrences
                 
-    accuracy = (float(true_positives) / (true_positives + false_positives + false_negatives)) 
+    accuracy = (float(true_positives) / float(true_positives + false_positives + false_negatives)) 
 
     print "Precision: {}".format(float(true_positives) / (float(true_positives + false_positives)))
     print "Recall: {}".format(float(true_positives) / (float(true_positives + false_negatives)))

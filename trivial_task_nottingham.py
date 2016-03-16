@@ -19,15 +19,15 @@ if __name__ == '__main__':
     
     max_repeats = 5
     batch_size = 100
-    minibatch_size = 50
-    time_batch_len = 16
+    minibatch_size = 100
+    time_batch_len = 100
     time_step = 120
     melody_coeff = 0.5
 
     lr = 1e-3
     lr_decay = 0.9
     max_epochs = 500
-    loss_convergence = 0.001
+    loss_convergence = 0.01
 
     chord_to_idx = {
         "CM": 0,
