@@ -19,17 +19,19 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Music RNN')
     parser.add_argument('--train', action='store_true', default=False)
     parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--num_epochs', type=int, default=1000)
-    parser.add_argument('--early_stopping', type=float, default=0.10,
+    parser.add_argument('--num_epochs', type=int, default=100)
+    parser.add_argument('--early_stopping', type=float, default=-1,
         help="Relative increase over lowest validation error required for early stopping")
 
     parser.add_argument('--choice', type=str, default='melody',
                         choices = ['melody', 'harmony'])
 
+    parser.add_argument('--dropout', type=float, default=0.4) # keep probs
+    parser.add_argument('--input_dropout', type=float, default=1.0)
     parser.add_argument('--model_dir', type=str, default='models')
     parser.add_argument('--charts_dir', type=str, default='charts')
     parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--hidden_size', type=int, default=100)
+    parser.add_argument('--hidden_size', type=int, default=200)
 
     args = parser.parse_args()
 
@@ -45,13 +47,13 @@ if __name__ == '__main__':
 
         return model_name
 
-    learning_rate = 1e-3
+    learning_rate = 5e-3
     learning_rate_decay = 0.9
 
     resolution = 480
     time_step = 120
     time_batch_len = 128
-    num_time_batches = 3
+    max_time_batches = 9
     batch_size = 100
 
     with open(nottingham_util.PICKLE_LOC, 'r') as f:
@@ -59,27 +61,32 @@ if __name__ == '__main__':
         chord_to_idx = pickle['chord_to_idx']
 
     data = util.load_data('', time_step, 
-        time_batch_len, num_time_batches, nottingham=pickle)
+        time_batch_len, max_time_batches, nottingham=pickle)
 
     # cut away unnecessary parts
     r = nottingham_util.NOTTINGHAM_MELODY_RANGE
     if args.choice == 'melody':
         print "Using only melody"
         for d in ['train', 'test', 'valid']:
-            data[d]["data"] = [ time_batch[:, :, :r] for time_batch in data[d]["data"] ]
-            data[d]["targets"] = [ time_batch[:, :, 0] for time_batch in data[d]["targets"] ]
-            # print data[d]["targets"][0].shape
+            new_data = []
+            for batch_data, batch_targets in data[d]["data"]:
+                new_data.append(([tb[:, :, :r] for tb in batch_data],
+                                 [tb[:, :, 0] for tb in batch_targets]))
+            data[d]["data"] = new_data
     else:
         print "Using only harmony"
         for d in ['train', 'test', 'valid']:
-            data[d]["data"] = [ time_batch[:, :, r:] for time_batch in data[d]["data"] ]
-            data[d]["targets"] = [ time_batch[:, :, 1] for time_batch in data[d]["targets"] ]
+            new_data = []
+            for batch_data, batch_targets in data[d]["data"]:
+                new_data.append(([tb[:, :, r:] for tb in batch_data],
+                                 [tb[:, :, 1] for tb in batch_targets]))
+            data[d]["data"] = new_data
 
-    input_dim = data["input_dim"] = data['train']["data"][0].shape[2]
+    input_dim = data["input_dim"] = data["train"]["data"][0][0][0].shape[2]
     print "New input dim: {}".format(input_dim)
-    for i, tb in enumerate(data[d]["data"]):
-        assert np.all(np.less_equal(np.sum(tb, axis=2), 1.0))
-
+    for batch_data, batch_targets in data[d]["data"]:
+        for tb in batch_data:
+            assert np.all(np.sum(tb, axis=2) == 1.0)
 
     model_class = NottinghamSeparate
     model_suffix = '_separate.model'
@@ -93,7 +100,8 @@ if __name__ == '__main__':
         "hidden_size": args.hidden_size,
         "num_layers": args.num_layers,
         "time_batch_len": time_batch_len,
-        "dropout_prob": 0.5,
+        "dropout_prob": args.dropout,
+        "input_dropout_prob": args.input_dropout,
         "cell_type": "lstm",
     } 
 
@@ -106,7 +114,7 @@ if __name__ == '__main__':
             with tf.variable_scope(model_name, reuse=None):
                 train_model = model_class(default_config, training=True)
             with tf.variable_scope(model_name, reuse=True):
-                valid_model = model_class(default_config)
+                valid_model = model_class(default_config, training=False)
 
             saver = tf.train.Saver(tf.all_variables())
             tf.initialize_all_variables().run()
@@ -122,13 +130,13 @@ if __name__ == '__main__':
             start_time = time.time()
             for i in range(args.num_epochs):
                 loss = util.run_epoch(session, train_model, 
-                    data["train"], training=True, batch_size = batch_size, separate=True)
+                    data["train"]["data"], training=True, testing=False)
                 train_losses.append((i, loss))
                 if i == 0:
                     continue
 
                 print 'Epoch: {}, Train Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
-                valid_loss = util.run_epoch(session, valid_model, data["valid"], batch_size = batch_size, separate=True)
+                valid_loss = util.run_epoch(session, valid_model, data["valid"]["data"], training=False, testing=False)
                 valid_losses.append((i, valid_loss))
                 print 'Valid Loss: {}'.format(valid_loss)
                 # if it's best validation loss so far, save it
@@ -170,7 +178,7 @@ if __name__ == '__main__':
         with tf.Graph().as_default(), tf.Session() as session:
 
             with tf.variable_scope(model_name, reuse=True if args.train else None):
-                test_model = model_class(default_config)
+                test_model = model_class(default_config, training=False)
 
             saver = tf.train.Saver(tf.all_variables())
             model_path = os.path.join(args.model_dir, model_name + model_suffix)
@@ -178,9 +186,7 @@ if __name__ == '__main__':
 
             # Deterministic Testing
             if args.test: 
-                test_loss, test_probs = util.run_epoch(session, test_model, 
-                                                       data["test"], 
-                                                       training=False, testing=True, separate=True)
+                test_loss, test_probs = util.run_epoch(session, test_model, data["test"]["data"], training=False, testing=True)
 
                 print 'Testing Loss ({}): {}'.format(model_name, test_loss)
-                nottingham_util.seperate_accuracy(test_probs, pickle['test'], default_config)
+                nottingham_util.seperate_accuracy(test_probs, data["test"]["data"], default_config)

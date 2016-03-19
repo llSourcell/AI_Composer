@@ -1,8 +1,13 @@
 import os, sys
 import argparse
 import time
- 
+import itertools
 import cPickle
+import logging
+import random
+import string
+import pprint
+
 import numpy as np
 import tensorflow as tf    
 import matplotlib.pyplot as plt
@@ -13,321 +18,199 @@ import sampling
 import util
 from model import Model, NottinghamModel
 
-###############################################################################
-# TODO:
-#   1. shuffle the batches randomly? 
-#   2. add batches by size!
-###############################################################################
+def get_config_name(config):
+    def replace_dot(s): return s.replace(".", "p")
+    return "nl_" + str(config.num_layers) + "_hs_" + str(config.hidden_size) + \
+            replace_dot("_mc_{}".format(config.melody_coeff)) + \
+            replace_dot("_dp_{}".format(config.dropout_prob)) + \
+            replace_dot("_tb_{}".format(config.time_batch_len))
 
-def make_model_name(layers, units, melody_coeff=None):
-    if melody_coeff:
-        model_name = "nl_" + str(layers) + \
-                     "_hs_" + str(units) + \
-                     "_co_" + str(melody_coeff).replace(".", "p")
-    else:
-        model_name = "nl_" + str(layers) + \
-                     "_hs_" + str(units)
+class DefaultConfig(object):
+    # model parameters
+    num_layers = 1
+    hidden_size = 100
+    melody_coeff = 0.5
+    dropout_prob = 0.5
+    input_dropout_prob = 0.5
+    cell_type = 'lstm'
 
-    return model_name
+    # learning parameters
+    max_time_batches = 9
+    time_batch_len = 128
+    learning_rate = 5e-3
+    learning_rate_decay = 0.9
+    num_epochs = 100
 
+    # metadata
+    dataset = 'softmax'
+    model_file = ''
+
+    def __repr__(self):
+        return """Num Layers: {}, Hidden Size: {}, Melody Coeff: {}, Dropout Prob: {}, Input Dropout Prob: {}, Cell Type: {}, Time Batch Len: {}""".format(self.num_layers, self.hidden_size, self.melody_coeff, self.dropout_prob, self.input_dropout_prob, self.cell_type, self.time_batch_len)
+    
 if __name__ == '__main__':
     np.random.seed()      
 
     parser = argparse.ArgumentParser(description='Music RNN')
-    parser.add_argument('--softmax', action='store_true', default=False)
-    parser.add_argument('--train', action='store_true', default=False)
-    parser.add_argument('--test', action='store_true', default=False)
-    parser.add_argument('--sample', action='store_true', default=False)
-    parser.add_argument('--num_epochs', type=int, default=1000)
-    parser.add_argument('--early_stopping', type=float, default=0.10,
-        help="Relative increase over lowest validation error required for early stopping")
-
-    parser.add_argument('--sample_melody', action='store_true', default=False)
-    parser.add_argument('--sample_harmony', action='store_true', default=False)
-    parser.add_argument('--sample_seq', type=str, default='random',
-        choices = ['random', 'chords'])
-    parser.add_argument('--conditioning', type=int, default=-1)
+    parser.add_argument('--dataset', type=str, default='softmax',
+                        choices = ['bach', 'nottingham', 'softmax'])
 
     parser.add_argument('--model_dir', type=str, default='models')
-    parser.add_argument('--charts_dir', type=str, default='charts')
-    parser.add_argument('--dataset', type=str, default='bach',
-                        choices = ['bach', 'nottingham'])
-
-    parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--hidden_size', type=int, default=150)
-    parser.add_argument('--melody_coeff', type=float, default=-1)
+    parser.add_argument('--run_name', type=str, default=time.strftime("%m%d_%H%M"))
 
     args = parser.parse_args()
 
-    learning_rate = 5e-3
-    learning_rate_decay = 0.9
-
-    if args.softmax:
-        # learning_rate = 1e-2
+    if args.dataset == 'softmax':
         resolution = 480
         time_step = 120
-        time_batch_len = 128
-        num_time_batches = 3
-        batch_size = 100
-
+        model_class = NottinghamModel
         with open(nottingham_util.PICKLE_LOC, 'r') as f:
             pickle = cPickle.load(f)
             chord_to_idx = pickle['chord_to_idx']
 
-        data = util.load_data('', time_step, 
-            time_batch_len, num_time_batches, nottingham=pickle)
-        model_class = NottinghamModel
-
-        model_suffix = '_softmax.model'
-        charts_suffix = '_softmax.png'
+        input_dim = pickle["train"][0].shape[1]
+        print 'Finished loading data, input dim: {}'.format(input_dim)
     else:
-        if args.dataset == 'bach':
-            # learning_rate = 1e-2
-            raise Exception("TODO: define stuff")
-            data_dir = 'data/JSBChorales'
-            resolution = 100
-            time_step = 120
-            time_batch_len = 100
-            max_time_batches = -1
-            batch_size = 100
+        raise Exception("Implement other datasets (TBD)")
 
-        elif args.dataset == 'nottingham':
-            data_dir = 'data/Nottingham'
-            resolution = 480
-            time_step = 120
-            time_batch_len = 128
-            num_time_batches = 3
-            batch_size = 100
 
-        else:
-            raise Exception("unrecognized dataset")
+    # model_suffix = '_softmax.model'
+    # charts_suffix = '_softmax.png'
 
-        data = util.load_data(data_dir, time_step, time_batch_len, max_time_batches)
-        model_class = Model
-
-        model_suffix = '_' + args.dataset + '.model'
-        charts_suffix = '_' + args.dataset + '.png'
-
-    input_dim = data["input_dim"]
-
-    print 'Finished loading data, input dim: {}'.format(input_dim)
-
-    default_config = {
-        "input_dim": input_dim,
-        "hidden_size": args.hidden_size,
-        "num_layers": args.num_layers,
-        "time_batch_len": time_batch_len,
-        "dropout_prob": 0.5,
-        "cell_type": "lstm",
-    } 
-
-    def set_config(config, name):
-        return dict(config, **{
-            "time_batch_len": data[name]["data"][0].shape[0]
-        })
+    # TODO: handle other datasets
+    # if args.dataset == 'bach':
+    #     # learning_rate = 1e-2
+    #     raise Exception("TODO: define stuff")
+    #     data_dir = 'data/JSBChorales'
+    #     resolution = 100
+    #     time_step = 120
+    #     time_batch_len = 100
+    #     max_time_batches = -1
+    #
+    # elif args.dataset == 'nottingham':
+    #     data_dir = 'data/Nottingham'
+    #     resolution = 480
+    #     time_step = 120
+    #     time_batch_len = 128
+    #     max_time_batches = 9
+    #
+    # else:
+    #     raise Exception("unrecognized dataset")
+    #
+    # data = util.load_data(data_dir, time_step, time_batch_len, max_time_batches)
+    # model_class = Model
 
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
 
-    if args.train:
-        best_config = None
-        best_valid_loss = None
-        best_model_name = None
+    best_config = None
+    best_valid_loss = None
 
-        # for melody_coeff in [0.5, 0.0, 1.0, 0.25, 0.75]:
-        for melody_coeff in [0.5]:
-            for num_layers in [1, 2, 3]:
-                for hidden_size in [100, 150, 200]:
+    # set up run dir
+    run_folder = os.path.join(args.model_dir, args.run_name)
+    if os.path.exists(run_folder):
+        raise Exception("Run name {} already exists, choose a different one", format(run_folder))
+    os.makedirs(run_folder)
 
-                    # model_name = make_model_name(num_layers, hidden_size, melody_coeff)
-                    model_name = make_model_name(num_layers, hidden_size)
+    logger = logging.getLogger(__name__) 
+    logger.setLevel(logging.INFO)
+    logger.addHandler(logging.StreamHandler())
+    logger.addHandler(logging.FileHandler(os.path.join(run_folder, "training.log")))
 
-                    config = dict(default_config, **{
-                        "input_dim": input_dim,
-                        "hidden_size": hidden_size,
-                        "num_layers": num_layers,
-                    })
+    # grid
+    grid = {
+        "dropout_prob": [0.5, 0.4],
+        "input_dropout_prob": [0.8, 0.9, 1.0],
+        "melody_coeff": [0.5],
+        "num_layers": [1],
+        "hidden_size": [100]
+    }
 
-                    with tf.Graph().as_default(), tf.Session() as session:
-                        with tf.variable_scope(model_name, reuse=None):
-                            train_model = model_class(set_config(config, "train"), 
-                                                      training=True)
-                        with tf.variable_scope(model_name, reuse=True):
-                            valid_model = model_class(set_config(config, "valid"))
+    # Generate product of hyperparams
+    runs = list(list(itertools.izip(grid, x)) for x in itertools.product(*grid.itervalues()))
+    logger.info("{} runs detected".format(len(runs)))
 
-                        saver = tf.train.Saver(tf.all_variables())
-                        tf.initialize_all_variables().run()
+    for combination in runs:
 
-                        train_model.assign_lr(session, learning_rate)
-                        train_model.assign_lr_decay(session, learning_rate_decay)
-                        if args.softmax:
-                            train_model.assign_melody_coeff(session, melody_coeff)
-                            valid_model.assign_melody_coeff(session, melody_coeff)
+        config = DefaultConfig()
+        config.dataset = args.dataset
+        config.model_name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12)) + '.model'
+        for attr, value in combination:
+            setattr(config, attr, value)
 
-                        # training
-                        early_stop_best_loss = None
-                        start_saving = False
-                        saved_flag = False
-                        train_losses, valid_losses = [], []
-                        start_time = time.time()
-                        for i in range(args.num_epochs):
-                            loss = util.run_epoch(session, train_model, 
-                                data["train"], training=True, batch_size = batch_size)
-                            train_losses.append((i, loss))
-                            if i == 0:
-                                continue
+        if config.dataset == 'softmax':
+            data = util.load_data('', time_step, config.time_batch_len, config.max_time_batches, nottingham=pickle)
+            config.input_dim = data["input_dim"]
+        else:
+            raise Exception("Implement other datasets")
 
-                            print 'Epoch: {}, Train Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
-                            valid_loss = util.run_epoch(session, valid_model, data["valid"], training=False, batch_size = batch_size)
-                            valid_losses.append((i, valid_loss))
-                            print 'Valid Loss: {}'.format(valid_loss)
-                            # if it's best validation loss so far, save it
-                            if early_stop_best_loss == None:
-                                early_stop_best_loss = valid_loss
-                            elif valid_loss < early_stop_best_loss:
-                                early_stop_best_loss = valid_loss
-                                if start_saving:
-                                    print 'Best loss so far encountered, saving model.'
-                                    saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
-                                    saved_flag = True
-                            elif not start_saving:
-                                start_saving = True 
-                                print 'Valid loss increased for the first time, will start saving models'
-                                saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
-                                saved_flag = True
+        logger.info(config)
+        config_file_path = os.path.join(run_folder, get_config_name(config) + '.config')
+        with open(config_file_path, 'w') as f: 
+            cPickle.dump(config, f)
 
-                            # early stop if generalization loss is worst than args.early_stopping
-                            if args.early_stopping > 0:
-                                if ((valid_loss / early_stop_best_loss) - 1.0) > args.early_stopping:
-                                    print 'Early stopping criteria reached: {}'.format(args.early_stopping)
-                                    break
+        with tf.Graph().as_default(), tf.Session() as session:
+            with tf.variable_scope("model", reuse=None):
+                train_model = model_class(config, training=True)
+            with tf.variable_scope("model", reuse=True):
+                valid_model = model_class(config, training=False)
 
-                        if not saved_flag:
-                            saver.save(session, os.path.join(args.model_dir, model_name + model_suffix))
+            saver = tf.train.Saver(tf.all_variables())
+            tf.initialize_all_variables().run()
 
-                        # set loss axis max to 20
-                        axes = plt.gca()
-                        if args.softmax:
-                            axes.set_ylim([0, 2])
-                        else:
-                            axes.set_ylim([0, 100])
-                        plt.plot([t[0] for t in train_losses], [t[1] for t in train_losses])
-                        plt.plot([t[0] for t in valid_losses], [t[1] for t in valid_losses])
-                        plt.legend(['Train Loss', 'Validation Loss'])
-                        plt.savefig(os.path.join(args.charts_dir, model_name + charts_suffix))
-                        plt.clf()
-                        # print "Saved graph"
+            # training
+            early_stop_best_loss = None
+            start_saving = False
+            saved_flag = False
+            train_losses, valid_losses = [], []
+            start_time = time.time()
+            for i in range(config.num_epochs):
+                loss = util.run_epoch(session, train_model, 
+                    data["train"]["data"], training=True, testing=False)
+                train_losses.append((i, loss))
+                if i == 0:
+                    continue
 
-                        print "Model {}, Loss: {}".format(model_name, early_stop_best_loss)
-                        if best_valid_loss == None or early_stop_best_loss < best_valid_loss:
-                            print "Found best new model: {}".format(model_name)
-                            best_valid_loss = early_stop_best_loss
-                            best_config = config
-                            best_model_name = model_name
+                valid_loss = util.run_epoch(session, valid_model, data["valid"]["data"], training=False, testing=False)
+                valid_losses.append((i, valid_loss))
 
-        print 'Best config ({}): {}'.format(best_model_name, best_config)
-        sample_model_name = best_model_name
+                logger.info('Epoch: {}, Train Loss: {}, Valid Loss: {}, Time Per Epoch: {}'.format(\
+                        i, loss, valid_loss, (time.time() - start_time)/i))
 
-    else:
-        sample_model_name = make_model_name(args.num_layers, args.hidden_size, 
-            args.melody_coeff if args.melody_coeff > 0 else None)
+                # if it's best validation loss so far, save it
+                if early_stop_best_loss == None:
+                    early_stop_best_loss = valid_loss
+                elif valid_loss < early_stop_best_loss:
+                    early_stop_best_loss = valid_loss
+                    if start_saving:
+                        logger.info('Best loss so far encountered, saving model.')
+                        saver.save(session, os.path.join(run_folder, config.model_name))
+                        saved_flag = True
+                elif not start_saving:
+                    start_saving = True 
+                    logger.info('Valid loss increased for the first time, will start saving models')
+                    saver.save(session, os.path.join(run_folder, config.model_name))
+                    saved_flag = True
 
-    # # SAMPLING SESSION #
+            if not saved_flag:
+                saver.save(session, os.path.join(run_folder, config.model_name))
 
-    if not args.test and not args.sample:
-        sys.exit(0)
-
-    with tf.Graph().as_default(), tf.Session() as session:
-
-        if args.sample: 
-            with tf.variable_scope(sample_model_name, reuse=None):
-                sampling_model = model_class(dict(default_config, **{
-                    "time_batch_len": 1
-                }))
-
-        if args.test:
-            test_config = set_config(default_config, "test")
-            with tf.variable_scope(sample_model_name, reuse=True if args.sample else None):
-                test_model = model_class(test_config)
-
-        saver = tf.train.Saver(tf.all_variables())
-        model_path = os.path.join(args.model_dir, sample_model_name + model_suffix)
-        saver.restore(session, model_path)
-
-        # Deterministic Testing
-        if args.test: 
-            if args.softmax and args.melody_coeff > 0:
-                test_model.assign_melody_coeff(session, args.melody_coeff)
-                print "Using melody_coeff: {}".format(test_model.melody_coeff.eval())
-            test_loss, test_probs = util.run_epoch(session, test_model, data["test"], training=False, testing=True)
-
-            print 'Testing Loss ({}): {}'.format(sample_model_name, test_loss)
-
-            if args.softmax:
-                nottingham_util.accuracy(test_probs, data['test']['targets'], test_config)
+            # set loss axis max to 20
+            axes = plt.gca()
+            if config.dataset == 'softmax':
+                axes.set_ylim([0, 2])
             else:
-                util.accuracy(test_probs, data['test']['targets'], test_config, num_samples=50)
+                axes.set_ylim([0, 100])
+            plt.plot([t[0] for t in train_losses], [t[1] for t in train_losses])
+            plt.plot([t[0] for t in valid_losses], [t[1] for t in valid_losses])
+            plt.legend(['Train Loss', 'Validation Loss'])
+            chart_file_path = os.path.join(run_folder, get_config_name(config) + '.png')
+            plt.savefig(chart_file_path)
+            plt.clf()
 
-        # start with the first chord
-        if args.sample:
-            state = sampling_model.get_cell_zero_state(session, 1)
-            sampling_length = time_batch_len * num_time_batches
+            logger.info("Config {}, Loss: {}".format(config, early_stop_best_loss))
+            if best_valid_loss == None or early_stop_best_loss < best_valid_loss:
+                logger.info("Found best new model!")
+                best_valid_loss = early_stop_best_loss
+                best_config = config
 
-            if args.sample_seq == 'chords':
-                # 16 - one measure, 64 - chord progression
-                repeats = (time_batch_len * num_time_batches) / 64
-                sample_seq = nottingham_util.i_vi_iv_v(chord_to_idx, repeats, input_dim)
-                print 'Sampling melody using a I, VI, IV, V progression'
-
-            if args.sample_seq == 'random':
-                sample_index = np.random.choice(np.arange(0, data["test"]["data"][0].shape[1]))
-                sample_seq = [data["test"]["data"][i/time_batch_len][i%time_batch_len, sample_index, :] for
-                    i in range(sampling_length)]    
-                print "Sampling File: {} ({} time steps)".format(
-                    data["test"]["metadata"][sample_index]['name'], len(sample_seq))
-
-            chord = sample_seq[0]
-            seq = [chord]
-
-            if args.conditioning > 0:
-                for i in range(1, args.conditioning):
-                    seq_input = np.reshape(chord, [1, 1, input_dim])
-                    feed = {
-                        sampling_model.seq_input: seq_input,
-                        sampling_model.initial_state: state,
-                    }
-                    state = session.run(sampling_model.final_state, feed_dict=feed)
-                    chord = sample_seq[i]
-                    seq.append(chord)
-
-            if args.softmax:
-                writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=False)
-                sampler = nottingham_util.NottinghamSampler(chord_to_idx, verbose=False)
-            else:
-                writer = midi_util.MidiWriter()
-                sampler = sampling.Sampler(verbose=False)
-
-            for i in range(max(sampling_length - len(seq), 0)):
-                seq_input = np.reshape(chord, [1, 1, input_dim])
-                feed = {
-                    sampling_model.seq_input: seq_input,
-                    sampling_model.initial_state: state,
-                }
-                [probs, state] = session.run(
-                    [sampling_model.probs, sampling_model.final_state],
-                    feed_dict=feed)
-                probs = np.reshape(probs, [input_dim])
-                chord = sampler.sample_notes(probs)
-
-                if args.softmax:
-                    r = nottingham_util.NOTTINGHAM_MELODY_RANGE
-                    if args.sample_melody:
-                        chord[r:] = 0
-                        chord[r:] = sample_seq[i][r:]
-                    elif args.sample_harmony:
-                        chord[:r] = 0
-                        chord[:r] = sample_seq[i][:r]
-
-                seq.append(chord)
-
-            writer.dump_sequence_to_midi(seq, "best.midi", 
-                time_step=time_step, resolution=resolution)
+    logger.info("Best Config: {}, Loss: {}".format(best_config, best_valid_loss))

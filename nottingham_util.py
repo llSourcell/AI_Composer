@@ -341,48 +341,59 @@ class NottinghamSampler(object):
         elif self.method == 'sample':
             return self.sample_notes_dist(probs)
 
-def accuracy(raw_probs, raw_targets, config, num_samples=1):
-    
-    time_batch_len = config["time_batch_len"]
-    input_dim = config["input_dim"]
+def accuracy(batch_probs, data, num_samples=1):
+    """
+    Batch Probs: { num_time_steps: [ time_step_1, time_step_2, ... ] }
+    Data: [ 
+        [ [ data ], [ target ] ], # batch with one time step
+        [ [ data1, data2 ], [ target1, target2 ] ], # batch with two time steps
+        ...
+    ]
+    """
 
     # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
-    test_probs = np.concatenate(raw_probs, axis=0)
-    test_targets = np.concatenate(raw_targets, axis=0)
+    # test_probs = np.concatenate(raw_probs, axis=0)
+    # ts_targets = np.concatenate(raw_targets, axis=0)
 
     def calc_accuracy():
         total = 0
         melody_correct, harmony_correct = 0, 0
         melody_incorrect, harmony_incorrect = 0, 0
-        for seq_idx in range(test_targets.shape[1]):
-            for step_idx in range(test_targets.shape[0]):
+        for _, batch_targets in data:
+            num_time_steps = len(batch_targets)
+            for ts_targets, ts_probs in zip(batch_targets, batch_probs[num_time_steps]):
 
-                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx, seq_idx, :])]
-                notes = [n[0] for n in idxed]
-                ps = np.array([n[1] for n in idxed])
-                r = NOTTINGHAM_MELODY_RANGE
+                assert ts_targets.shape == ts_targets.shape
 
-                assert np.allclose(np.sum(ps[:r]), 1.0)
-                assert np.allclose(np.sum(ps[r:]), 1.0)
+                for seq_idx in range(ts_targets.shape[1]):
+                    for step_idx in range(ts_targets.shape[0]):
+                        idxed = [(n, p) for n, p in \
+                                 enumerate(ts_probs[step_idx, seq_idx, :])]
+                        notes = [n[0] for n in idxed]
+                        ps = np.array([n[1] for n in idxed])
+                        r = NOTTINGHAM_MELODY_RANGE
 
-                # renormalize so numpy doesn't complain
-                ps[:r] = ps[:r] / ps[:r].sum()
-                ps[r:] = ps[r:] / ps[r:].sum()
+                        assert np.allclose(np.sum(ps[:r]), 1.0)
+                        assert np.allclose(np.sum(ps[r:]), 1.0)
 
-                melody = np.random.choice(notes[:r], p=ps[:r])
-                harmony = np.random.choice(notes[r:], p=ps[r:])
+                        # renormalize so numpy doesn't complain
+                        ps[:r] = ps[:r] / ps[:r].sum()
+                        ps[r:] = ps[r:] / ps[r:].sum()
 
-                melody_target = test_targets[step_idx, seq_idx, 0]
-                if melody_target == melody:
-                    melody_correct += 1
-                else:
-                    melody_incorrect += 1
+                        melody = np.random.choice(notes[:r], p=ps[:r])
+                        harmony = np.random.choice(notes[r:], p=ps[r:])
 
-                harmony_target = test_targets[step_idx, seq_idx, 1] + r
-                if harmony_target == harmony:
-                    harmony_correct += 1
-                else:
-                    harmony_incorrect += 1
+                        melody_target = ts_targets[step_idx, seq_idx, 0]
+                        if melody_target == melody:
+                            melody_correct += 1
+                        else:
+                            melody_incorrect += 1
+
+                        harmony_target = ts_targets[step_idx, seq_idx, 1] + r
+                        if harmony_target == harmony:
+                            harmony_correct += 1
+                        else:
+                            harmony_incorrect += 1
 
         return (melody_correct, melody_incorrect, harmony_correct, harmony_incorrect)
 
@@ -398,45 +409,47 @@ def accuracy(raw_probs, raw_targets, config, num_samples=1):
     print "Harmony Precision/Recall: {}".format(sum(haccs)/len(haccs))
     print "Total Precision/Recall: {}".format(sum(taccs)/len(taccs))
 
-def seperate_accuracy(raw_probs, test_sequences, config, num_samples=1):
+def seperate_accuracy(batch_probs, data, config, num_samples=1):
     
     time_batch_len = config["time_batch_len"]
     input_dim = config["input_dim"]
     choice = config["choice"]
 
-    # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
-    test_probs = np.concatenate(raw_probs, axis=0)
-
     def calc_accuracy():
-        total_correct = 0
-        total_incorrect = 0
-        for seq_idx, seq in enumerate(test_sequences):
-            for step_idx in range(seq.shape[0]):
-                if step_idx == 0:
-                    continue
+        total = 0
+        total_correct, total_incorrect = 0, 0
+        for _, batch_targets in data:
+            num_time_steps = len(batch_targets)
+            for ts_targets, ts_probs in zip(batch_targets, batch_probs[num_time_steps]):
 
-                r = NOTTINGHAM_MELODY_RANGE
-                
-                idxed = [(n, p) for n, p in enumerate(test_probs[step_idx-1, seq_idx, :])]
-                notes = [n[0] for n in idxed]
-                ps = np.array([n[1] for n in idxed])
+                assert ts_targets.shape == ts_targets.shape
 
-                assert np.allclose(np.sum(ps), 1.0)
-                ps = ps / ps.sum()
-                note = np.random.choice(notes, p=ps)
+                for seq_idx in range(ts_targets.shape[1]):
+                    for step_idx in range(ts_targets.shape[0]):
 
-                if choice == 'melody':
-                    target = np.nonzero(seq[step_idx, :r])[0]
-                elif choice == 'harmony':
-                    target = np.nonzero(seq[step_idx, r:])[0]
-                else:
-                    raise Exception("Did not recognize choice")
+                        idxed = [(n, p) for n, p in \
+                                 enumerate(ts_probs[step_idx, seq_idx, :])]
+                        notes = [n[0] for n in idxed]
+                        ps = np.array([n[1] for n in idxed])
+                        r = NOTTINGHAM_MELODY_RANGE
 
-                assert len(target) == 1
-                if target == note:
-                    total_correct += 1
-                else:
-                    total_incorrect += 1
+                        assert np.allclose(np.sum(ps), 1.0)
+                        ps = ps / ps.sum()
+                        note = np.random.choice(notes, p=ps)
+
+                        # if choice == 'melody':
+                        #     target = ts_targets[step_idx, seq_idx, 0]
+                        # elif choice == 'harmony':
+                        #     target = ts_targets[step_idx, seq_idx, 1]
+                        # else:
+                        #     raise Exception("Did not recognize choice")
+
+                        target = ts_targets[step_idx, seq_idx]
+                        # assert len(target) == 1
+                        if target == note:
+                            total_correct += 1
+                        else:
+                            total_incorrect += 1
 
         return (total_correct, total_incorrect)
 

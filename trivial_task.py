@@ -34,18 +34,7 @@ if __name__ == '__main__':
         chord_seq = np.reshape(chord_seq, [-1, dims])
         sequences += [chord_seq.copy()]
 
-    notes, targets, rolled_lengths, unrolled_lengths = \
-        util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
-
-    assert len(notes) == len(targets) == len(rolled_lengths)
-    assert notes[0].shape[1] == len(unrolled_lengths)
-
-    full_data = {
-        "data": notes,
-        "targets":  targets,
-        "seq_lengths": rolled_lengths,
-        "unrolled_lengths": unrolled_lengths
-    }
+    data = util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1)
 
     config = {
         "input_dim": dims,
@@ -69,7 +58,7 @@ if __name__ == '__main__':
         train_model.assign_lr_decay(session, lr_decay)
         time_start = time.time()
         for i in range(max_epochs):
-            loss = util.run_epoch(session, train_model, full_data, training=True,
+            loss = util.run_epoch(session, train_model, data, training=True,
                                   batch_size = minibatch_size)
             if i % 10 == 0 and i != 0:
                 print 'Epoch {}, Loss: {}, Time Per Epoch {}'.\
@@ -80,7 +69,7 @@ if __name__ == '__main__':
         # TESTING
         with tf.variable_scope("trivial", reuse=True):
             test_model = Model(config)
-            loss, prob_vals = util.run_epoch(session, test_model, full_data,
+            loss, prob_vals = util.run_epoch(session, test_model, data,
                 training=False, testing=True, batch_size = minibatch_size)
             print 'Test Loss (should be low): {}'.format(loss)
             util.accuracy(prob_vals, targets, unrolled_lengths, config)
