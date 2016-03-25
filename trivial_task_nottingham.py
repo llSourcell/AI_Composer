@@ -11,22 +11,26 @@ import nottingham_util
 import sampling
 import util
 from model import NottinghamModel
+from rnn import DefaultConfig
 
 TICKS_PER_QUARTER = 480
 
 if __name__ == '__main__':
     np.random.seed(1)      
     
+    config = DefaultConfig()
     max_repeats = 5
     batch_size = 100
     minibatch_size = 100
-    time_batch_len = 100
     time_step = 120
-    melody_coeff = 0.5
+    config.time_batch_len = time_batch_len = 100
+    config.melody_coeff = melody_coeff = 0.5
 
-    lr = 1e-3
-    lr_decay = 0.9
-    max_epochs = 500
+    config.learning_rate = lr = 1e-3
+    config.learning_rate_decay = lr_decay = 0.9
+    config.num_epochs = max_epochs = 500
+    config.input_dropout_prob = 0.5
+    config.dropout_prob = 0.5
     loss_convergence = 0.01
 
     chord_to_idx = {
@@ -36,6 +40,7 @@ if __name__ == '__main__':
         "GM": 3
     }
     dims = nottingham_util.NOTTINGHAM_MELODY_RANGE + len(chord_to_idx)
+    config.input_dim = dims
 
     # reshape to a (seq_length x num_dims)
     # bunch of variable length progressions
@@ -74,37 +79,29 @@ if __name__ == '__main__':
     writer = nottingham_util.NottinghamMidiWriter(chord_to_idx, verbose=True)
     writer.dump_sequence_to_midi(sequences[0], "trivial_truth.midi", time_step=time_step, resolution=TICKS_PER_QUARTER)
 
-    notes, targets, rolled_lengths, unrolled_lengths = \
-        util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1, 
-            softmax = True)
+    data = \
+        util.batch_data(sequences, time_batch_len = time_batch_len, max_time_batches = -1, softmax = True)
 
-    assert len(notes) == len(targets) == len(rolled_lengths)
-    assert notes[0].shape[1] == len(unrolled_lengths)
-    
-    for i in range(notes[0].shape[0]):
-        num_notes = len(np.nonzero(notes[0][i, 0, :])[0])
-        assert num_notes == 1 or num_notes == 2
+    # assert len(notes) == len(targets) == len(rolled_lengths)
+    # assert notes[0].shape[1] == len(unrolled_lengths)
+    #
+    # for i in range(notes[0].shape[0]):
+    #     num_notes = len(np.nonzero(notes[0][i, 0, :])[0])
+    #     assert num_notes == 1 or num_notes == 2
 
     # assert np.array_equal(notes[0][1, 0, :], targets[0][0, 0, :])
     # assert np.array_equal(notes[0][2, 0, :], targets[0][1, 0, :])
     # assert np.array_equal(notes[0][3, 0, :], targets[0][2, 0, :])
     # assert np.array_equal(notes[1][0, 0, :], targets[0][3, 0, :])
 
-    full_data = {
-        "data": notes,
-        "targets":  targets,
-        "seq_lengths": rolled_lengths,
-        "unrolled_lengths": unrolled_lengths
-    }
-
-    config = {
-        "input_dim": dims,
-        "hidden_size": 100,
-        "num_layers": 1,
-        "dropout_prob": 1.0,
-        "time_batch_len": time_batch_len,
-        "cell_type": "lstm"
-    } 
+    # config = {
+    #     "input_dim": dims,
+    #     "hidden_size": 100,
+    #     "num_layers": 1,
+    #     "dropout_prob": 1.0,
+    #     "time_batch_len": time_batch_len,
+    #     "cell_type": "lstm"
+    # } 
 
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
 
@@ -115,13 +112,9 @@ if __name__ == '__main__':
         tf.initialize_all_variables().run()
 
         # training
-        train_model.assign_lr(session, lr)
-        train_model.assign_lr_decay(session, lr_decay)
-        train_model.assign_melody_coeff(session, melody_coeff)
         start_time = time.time()
         for i in range(max_epochs):
-            loss = util.run_epoch(session, train_model, full_data, training=True,
-                batch_size = minibatch_size)
+            loss = util.run_epoch(session, train_model, data, training=True)
             if i % 10 == 0 and i != 0:
                 print 'Epoch: {}, Loss: {}, Time Per Epoch: {}'.format(i, loss, (time.time() - start_time)/i)
             if loss < loss_convergence:
@@ -130,18 +123,16 @@ if __name__ == '__main__':
         # TESTING
         # with tf.variable_scope("trivial", reuse=True):
         #     test_model = NottinghamModel(config)
-        #     test_model.assign_melody_coeff(session, melody_coeff)
-        #     loss, prob_vals = util.run_epoch(session, test_model, full_data,
-        #         training=False, testing=True, batch_size = minibatch_size)
+        #     loss, prob_vals = util.run_epoch(session, test_model, data,
+        #         training=False, testing=True)
         #     print 'Test Loss (should be low): {}'.format(loss)
-        #     util.accuracy(prob_vals, targets, unrolled_lengths, config)
+        #     # util.accuracy(prob_vals, targets, unrolled_lengths, config)
 
         # SAMPLING SESSION #
         with tf.variable_scope("trivial", reuse=True):
             sample_model = NottinghamModel(dict(config, **{
                 "time_batch_len": 1
             }), training=False)
-            sample_model.assign_melody_coeff(session, melody_coeff)
 
         # start with the first chord
         chord = sequences[0][0]

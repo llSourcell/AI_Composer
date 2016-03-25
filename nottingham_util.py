@@ -29,7 +29,23 @@ SHARPS_TO_FLATS = {
     "G#": "Ab",
 }
 
-def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, verbose=False):
+def resolve_chord(chord):
+    if chord in CHORD_BLACKLIST:
+        return None
+    # take the first of dual chords
+    if "|" in chord:
+        chord = chord.split("|")[0]
+    # remove 7ths, 11ths, 9s, 6th,
+    if chord.endswith("11"):
+        chord = chord[:-2]
+    if chord.endswith("7") or chord.endswith("9") or chord.endswith("6"):
+        chord = chord[:-1]
+    # replace 'dim' with minor
+    if chord.endswith("dim"):
+        chord = chord[:-3] + "m"
+    return chord
+
+def prepare_nottingham_pickle(time_step, chord_cutoff=64, filename=PICKLE_LOC, verbose=False):
 
     data = {}
     store = {}
@@ -62,7 +78,7 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=0, filename=PICKLE_LOC, ve
     num_chords = len(chord_mapping)
     store['chord_to_idx'] = chord_mapping
     if verbose:
-        print chord_mapping
+        pprint(chords)
         print "Number of chords: {}".format(num_chords)
         print "Max Sequence length: {}".format(max_seq)
         print "Avg Sequence length: {}".format(avg_seq)
@@ -193,16 +209,22 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
                 else:
                     harmonies.append(NO_CHORD)
             else:
-                # TODO: fix hack that removes 11ths
-                if chord[0].endswith("11"):
-                    if verbose:
-                        print "Encountered 11th note, removing 11th ({})".format(input_filename)
-                    chord[0] = chord[0][:-2]
-
-                if chord[0] in CHORD_BLACKLIST:
-                    harmonies.append(NO_CHORD)
+                resolved = resolve_chord(chord[0])
+                if resolved:
+                    harmonies.append(resolved)
                 else:
-                    harmonies.append(chord[0])
+                    harmonies.append(NO_CHORD)
+                # harmonies.append(chord[0])
+                # # TODO: fix hack that removes 11ths
+                # if chord[0].endswith("11"):
+                #     if verbose:
+                #         print "Encountered 11th note, removing 11th ({})".format(input_filename)
+                #     chord[0] = chord[0][:-2]
+                #
+                # if chord[0] in CHORD_BLACKLIST:
+                #     harmonies.append(NO_CHORD)
+                # else:
+                #     harmonies.append(chord[0])
         else:
             harmonies.append(NO_CHORD)
 
@@ -409,11 +431,7 @@ def accuracy(batch_probs, data, num_samples=1):
     print "Harmony Precision/Recall: {}".format(sum(haccs)/len(haccs))
     print "Total Precision/Recall: {}".format(sum(taccs)/len(taccs))
 
-def seperate_accuracy(batch_probs, data, config, num_samples=1):
-    
-    time_batch_len = config["time_batch_len"]
-    input_dim = config["input_dim"]
-    choice = config["choice"]
+def seperate_accuracy(batch_probs, data, num_samples=1):
 
     def calc_accuracy():
         total = 0
@@ -437,15 +455,7 @@ def seperate_accuracy(batch_probs, data, config, num_samples=1):
                         ps = ps / ps.sum()
                         note = np.random.choice(notes, p=ps)
 
-                        # if choice == 'melody':
-                        #     target = ts_targets[step_idx, seq_idx, 0]
-                        # elif choice == 'harmony':
-                        #     target = ts_targets[step_idx, seq_idx, 1]
-                        # else:
-                        #     raise Exception("Did not recognize choice")
-
                         target = ts_targets[step_idx, seq_idx]
-                        # assert len(target) == 1
                         if target == note:
                             total_correct += 1
                         else:
@@ -459,7 +469,7 @@ def seperate_accuracy(batch_probs, data, config, num_samples=1):
         c, ic = calc_accuracy()
         taccs.append( float(c) / float(c + ic))
 
-    print "{} Precision/Recall: {}".format(choice, sum(taccs)/len(taccs))
+    print "Precision/Recall: {}".format(sum(taccs)/len(taccs))
 
 def i_vi_iv_v(chord_to_idx, repeats, input_dim):
     r = NOTTINGHAM_MELODY_RANGE
@@ -485,6 +495,11 @@ if __name__ == '__main__':
 
     resolution = 480
     time_step = 120
+
+    assert resolve_chord("GM7") == "GM"
+    assert resolve_chord("G#dim|AM7") == "G#m"
+    assert resolve_chord("Dm9") == "Dm"
+    assert resolve_chord("AM11") == "AM"
 
     prepare_nottingham_pickle(time_step, verbose=True)
     # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_3.mid", time_step, verbose=True)

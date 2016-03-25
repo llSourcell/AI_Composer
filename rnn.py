@@ -23,7 +23,8 @@ def get_config_name(config):
     return "nl_" + str(config.num_layers) + "_hs_" + str(config.hidden_size) + \
             replace_dot("_mc_{}".format(config.melody_coeff)) + \
             replace_dot("_dp_{}".format(config.dropout_prob)) + \
-            replace_dot("_tb_{}".format(config.time_batch_len))
+            replace_dot("_idp_{}".format(config.input_dropout_prob)) + \
+            replace_dot("_tb_{}".format(config.time_batch_len)) 
 
 class DefaultConfig(object):
     # model parameters
@@ -31,7 +32,7 @@ class DefaultConfig(object):
     hidden_size = 100
     melody_coeff = 0.5
     dropout_prob = 0.5
-    input_dropout_prob = 0.5
+    input_dropout_prob = 0.9
     cell_type = 'lstm'
 
     # learning parameters
@@ -39,14 +40,14 @@ class DefaultConfig(object):
     time_batch_len = 128
     learning_rate = 5e-3
     learning_rate_decay = 0.9
-    num_epochs = 100
+    num_epochs = 200
 
     # metadata
     dataset = 'softmax'
     model_file = ''
 
     def __repr__(self):
-        return """Num Layers: {}, Hidden Size: {}, Melody Coeff: {}, Dropout Prob: {}, Input Dropout Prob: {}, Cell Type: {}, Time Batch Len: {}""".format(self.num_layers, self.hidden_size, self.melody_coeff, self.dropout_prob, self.input_dropout_prob, self.cell_type, self.time_batch_len)
+        return """Num Layers: {}, Hidden Size: {}, Melody Coeff: {}, Dropout Prob: {}, Input Dropout Prob: {}, Cell Type: {}, Time Batch Len: {}, Learning Rate: {}, Decay: {}""".format(self.num_layers, self.hidden_size, self.melody_coeff, self.dropout_prob, self.input_dropout_prob, self.cell_type, self.time_batch_len, self.learning_rate, self.learning_rate_decay)
     
 if __name__ == '__main__':
     np.random.seed()      
@@ -54,7 +55,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Music RNN')
     parser.add_argument('--dataset', type=str, default='softmax',
                         choices = ['bach', 'nottingham', 'softmax'])
-
     parser.add_argument('--model_dir', type=str, default='models')
     parser.add_argument('--run_name', type=str, default=time.strftime("%m%d_%H%M"))
 
@@ -118,11 +118,15 @@ if __name__ == '__main__':
 
     # grid
     grid = {
-        "dropout_prob": [0.5, 0.4],
-        "input_dropout_prob": [0.8, 0.9, 1.0],
+        "dropout_prob": [0.5],
+        "input_dropout_prob": [0.8],
         "melody_coeff": [0.5],
-        "num_layers": [1],
-        "hidden_size": [100]
+        "num_layers": [1, 2],
+        "hidden_size": [50],
+        "num_epochs": [200],
+        "learning_rate": [5e-3],
+        "learning_rate_decay": [0.9],
+        "time_batch_len": [128],
     }
 
     # Generate product of hyperparams
@@ -136,6 +140,11 @@ if __name__ == '__main__':
         config.model_name = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in range(12)) + '.model'
         for attr, value in combination:
             setattr(config, attr, value)
+            # if attr == "dropout_prob":
+            #     config.input_dropout_prob = value
+            # if attr == "time_batch_len":
+            #     # equivalent to 9 time batches of len 128 each
+            #     config.max_time_batches = 9 * 128 / value
 
         if config.dataset == 'softmax':
             data = util.load_data('', time_step, config.time_batch_len, config.max_time_batches, nottingham=pickle)
