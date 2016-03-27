@@ -9,9 +9,7 @@ import mingus
 import mingus.core.chords
 import sampling
 
-# location of nottingham sequences
 PICKLE_LOC = 'data/nottingham.pickle'
-# predefined constants specific to the Nottingham dataset
 NOTTINGHAM_MELODY_MAX = 88
 NOTTINGHAM_MELODY_MIN = 55
 # add one to the range for silence in melody
@@ -30,6 +28,10 @@ SHARPS_TO_FLATS = {
 }
 
 def resolve_chord(chord):
+    """
+    Resolves rare chords to their closest common chord, to limit the total
+    amount of chord classes.
+    """
     if chord in CHORD_BLACKLIST:
         return None
     # take the first of dual chords
@@ -46,6 +48,9 @@ def resolve_chord(chord):
     return chord
 
 def prepare_nottingham_pickle(time_step, chord_cutoff=64, filename=PICKLE_LOC, verbose=False):
+    """
+    Parses the entire directory 
+    """
 
     data = {}
     store = {}

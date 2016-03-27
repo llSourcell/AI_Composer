@@ -8,7 +8,7 @@ from tensorflow.models.rnn import rnn, seq2seq
 import nottingham_util
 
 class Model(object):
-    """ RNN Model """
+    """ Cross-Entropy naive formulation """
     
     def __init__(self, config, training=False):
         self.config = config
@@ -68,9 +68,6 @@ class Model(object):
         outputs_list, self.final_state = rnn.rnn(self.cell, inputs_list, 
                                                  initial_state=self.initial_state)
 
-        # logits = tf.pack([tf.matmul(outputs_list[t], output_W) + output_b for t in range(time_batch_len)])
-
-        # TODO: verify if the below is faster and correct
         outputs = tf.pack(outputs_list)
         outputs_concat = tf.reshape(outputs, [-1, hidden_size])
         logits_concat = tf.matmul(outputs_concat, output_W) + output_b
@@ -97,6 +94,7 @@ class Model(object):
         return self.cell.zero_state(batch_size, tf.float32).eval(session=session)
 
 class NottinghamModel(Model):
+    """ Dual softmax formulation """
 
     def init_loss(self, outputs, outputs_concat):
         self.seq_targets = \
@@ -133,6 +131,7 @@ class NottinghamModel(Model):
         session.run(tf.assign(self.melody_coeff, melody_coeff))
 
 class NottinghamSeparate(Model):
+    """ Single softmax formulation """
 
     def init_loss(self, outputs, outputs_concat):
         self.seq_targets = \
