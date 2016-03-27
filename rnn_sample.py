@@ -22,6 +22,7 @@ if __name__ == '__main__':
     parser.add_argument('--sample_seq', type=str, default='random',
         choices = ['random', 'chords'])
     parser.add_argument('--conditioning', type=int, default=-1)
+    parser.add_argument('--sample_length', type=int, default=512)
 
     args = parser.parse_args()
 
@@ -43,7 +44,7 @@ if __name__ == '__main__':
         test_data = util.batch_data(pickle['test'], time_batch_len = 1, 
             max_time_batches = -1, softmax = True)
     else:
-        raise Exception("")
+        raise Exception("Other datasets not yet implemented")
 
     print config
 
@@ -59,8 +60,7 @@ if __name__ == '__main__':
         state = sampling_model.get_cell_zero_state(session, 1)
         if args.sample_seq == 'chords':
             # 16 - one measure, 64 - chord progression
-            sampling_length = 512 
-            repeats = sampling_length / 64
+            repeats = args.sample_length / 64
             sample_seq = nottingham_util.i_vi_iv_v(chord_to_idx, repeats, config.input_dim)
             print 'Sampling melody using a I, VI, IV, V progression'
 
@@ -68,7 +68,6 @@ if __name__ == '__main__':
             sample_index = np.random.choice(np.arange(len(pickle['test'])))
             sample_seq = [ pickle['test'][sample_index][i, :] 
                 for i in range(pickle['test'][sample_index].shape[0]) ]
-            sampling_length = len(sample_seq)
 
         chord = sample_seq[0]
         seq = [chord]
@@ -90,9 +89,9 @@ if __name__ == '__main__':
         else:
             # writer = midi_util.MidiWriter()
             # sampler = sampling.Sampler(verbose=False)
-            raise Exception("")
+            raise Exception("Other datasets not yet implemented")
 
-        for i in range(max(sampling_length - len(seq), 0)):
+        for i in range(max(args.sample_length - len(seq), 0)):
             seq_input = np.reshape(chord, [1, 1, config.input_dim])
             feed = {
                 sampling_model.seq_input: seq_input,

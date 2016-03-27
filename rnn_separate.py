@@ -43,7 +43,7 @@ if __name__ == '__main__':
         input_dim = pickle["train"][0].shape[1]
         print 'Finished loading data, input dim: {}'.format(input_dim)
     else:
-        raise Exception("Implement other datasets (TBD)")
+        raise Exception("Other datasets not yet implemented")
 
 
     initializer = tf.random_uniform_initializer(-0.1, 0.1)
@@ -86,7 +86,7 @@ if __name__ == '__main__':
             data = util.load_data('', time_step, config.time_batch_len, config.max_time_batches, nottingham=pickle)
             config.input_dim = data["input_dim"]
         else:
-            raise Exception("Implement other datasets")
+            raise Exception("Other datasets not yet implemented")
 
         # cut away unnecessary parts
         r = nottingham_util.NOTTINGHAM_MELODY_RANGE

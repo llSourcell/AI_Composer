@@ -54,7 +54,7 @@ if __name__ == '__main__':
             test_data = util.batch_data(pickle['test'], time_batch_len = 1, 
                 max_time_batches = -1, softmax = True)
     else:
-        raise Exception("")
+        raise Exception("Other datasets not yet implemented")
         
     print config
 
