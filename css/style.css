@@ -7,6 +7,14 @@ body {
   padding: 10px 0px;
 }
 
+.audio-wrapper p {
+  font-size: 14px;
+  text-align: center;
+  color: gray;
+  margin-top: 5px;
+  margin-bottom: 0;
+}
+
 .img-wrapper {
   text-align: center;
 }
