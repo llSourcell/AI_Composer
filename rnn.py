@@ -49,9 +49,10 @@ class DefaultConfig(object):
 if __name__ == '__main__':
     np.random.seed()      
 
-    parser = argparse.ArgumentParser(description='Music RNN')
+    parser = argparse.ArgumentParser(description='Script to train and save a model.')
     parser.add_argument('--dataset', type=str, default='softmax',
-                        choices = ['bach', 'nottingham', 'softmax'])
+                        # choices = ['bach', 'nottingham', 'softmax'],
+                        choices = ['softmax'])
     parser.add_argument('--model_dir', type=str, default='models')
     parser.add_argument('--run_name', type=str, default=time.strftime("%m%d_%H%M"))
 

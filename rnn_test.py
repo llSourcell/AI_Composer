@@ -13,7 +13,7 @@ from rnn import DefaultConfig
 if __name__ == '__main__':
     np.random.seed()      
 
-    parser = argparse.ArgumentParser(description='Music RNN')
+    parser = argparse.ArgumentParser(description='Script to test a models performance against the test set')
     parser.add_argument('--config_file', type=str, required=True)
     parser.add_argument('--num_samples', type=int, default=1)
     parser.add_argument('--seperate', action='store_true', default=False)

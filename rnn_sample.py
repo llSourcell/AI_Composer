@@ -15,7 +15,7 @@ from rnn import DefaultConfig
 if __name__ == '__main__':
     np.random.seed()      
 
-    parser = argparse.ArgumentParser(description='Music RNN Sampling')
+    parser = argparse.ArgumentParser(description='Script to generated a MIDI file sample from a trained model.')
     parser.add_argument('--config_file', type=str, required=True)
     parser.add_argument('--sample_melody', action='store_true', default=False)
     parser.add_argument('--sample_harmony', action='store_true', default=False)
