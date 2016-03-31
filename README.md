@@ -1,6 +1,6 @@
 Overview
 ============
-A project that trains a LSTM recurrent neural network over a dataset of MIDI files. More information can be found on the [writeup about this project](http://yoavz.com/music_rnn/) or the [final report](http://yoavz.com/music_rnn_paper.pdf) written. 
+A project that trains a LSTM recurrent neural network over a dataset of MIDI files. More information can be found on the [writeup about this project](http://yoavz.com/music_rnn/) or the [final report](http://yoavz.com/music_rnn_paper.pdf) written. *Warning: Some parts of this codebase are unfinished.*
 
 Dependencies
 ============
