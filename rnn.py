@@ -150,13 +150,6 @@ if __name__ == '__main__':
                 valid_losses.append((i, valid_loss))
                 logger.info('Valid Loss: {}'.format(valid_loss))
 
-                # if i % 5 == 0:
-                #     valid_loss = util.run_epoch(session, valid_model, data["valid"]["data"], training=False, testing=False)
-                #     logger.info('Valid Loss: {}'.format(valid_loss))
-                #     valid_losses.append((i, valid_loss))
-                #     saver.save(session, os.path.join(run_folder, config.model_name), global_step=i)
-                #
-                # if it's best validation loss so far, save it
                 if early_stop_best_loss == None:
                     early_stop_best_loss = valid_loss
                 elif valid_loss < early_stop_best_loss:
