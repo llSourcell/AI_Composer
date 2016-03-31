@@ -156,10 +156,23 @@ def run_epoch(session, model, batches, training=False, testing=False):
         probs = list()
 
         for tb_data, tb_targets in zip(data, targets):
+            if testing:
+                tbd = tb_data
+                tbt = tb_targets
+            else:
+                # shuffle all the batches of input, state, and target
+                batches = tb_data.shape[1]
+                permutations = np.random.permutation(batches)
+                tbd = np.zeros_like(tb_data)
+                tbd[:, np.arange(batches), :] = tb_data[:, permutations, :]
+                tbt = np.zeros_like(tb_targets)
+                tbt[:, np.arange(batches), :] = tb_targets[:, permutations, :]
+                state[np.arange(batches)] = state[permutations]
+
             feed_dict = {
                 model.initial_state: state,
-                model.seq_input: tb_data,
-                model.seq_targets: tb_targets,
+                model.seq_input: tbd,
+                model.seq_targets: tbt,
             }
             results = session.run(target_tensors, feed_dict=feed_dict)
 

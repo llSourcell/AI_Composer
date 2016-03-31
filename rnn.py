@@ -40,7 +40,7 @@ class DefaultConfig(object):
     time_batch_len = 128
     learning_rate = 5e-3
     learning_rate_decay = 0.9
-    num_epochs = 200
+    num_epochs = 100
 
     # metadata
     dataset = 'softmax'
@@ -91,9 +91,9 @@ if __name__ == '__main__':
 
     # grid
     grid = {
-        "dropout_prob": [0.5],
-        "input_dropout_prob": [0.8],
-        "melody_coeff": [0.0, 1.0],
+        "dropout_prob": [0.4],
+        "input_dropout_prob": [0.75],
+        "melody_coeff": [1.0],
         "num_layers": [2],
         "hidden_size": [200],
         "num_epochs": [200],
@@ -131,7 +131,7 @@ if __name__ == '__main__':
             with tf.variable_scope("model", reuse=True):
                 valid_model = model_class(config, training=False)
 
-            saver = tf.train.Saver(tf.all_variables())
+            saver = tf.train.Saver(tf.all_variables(), max_to_keep=40)
             tf.initialize_all_variables().run()
 
             # training
@@ -147,12 +147,18 @@ if __name__ == '__main__':
                 if i == 0:
                     continue
 
+                logger.info('Epoch: {}, Train Loss: {}, Time Per Epoch: {}'.format(\
+                        i, loss, (time.time() - start_time)/i))
                 valid_loss = util.run_epoch(session, valid_model, data["valid"]["data"], training=False, testing=False)
                 valid_losses.append((i, valid_loss))
+                logger.info('Valid Loss: {}'.format(valid_loss))
 
-                logger.info('Epoch: {}, Train Loss: {}, Valid Loss: {}, Time Per Epoch: {}'.format(\
-                        i, loss, valid_loss, (time.time() - start_time)/i))
-
+                # if i % 5 == 0:
+                #     valid_loss = util.run_epoch(session, valid_model, data["valid"]["data"], training=False, testing=False)
+                #     logger.info('Valid Loss: {}'.format(valid_loss))
+                #     valid_losses.append((i, valid_loss))
+                #     saver.save(session, os.path.join(run_folder, config.model_name), global_step=i)
+                #
                 # if it's best validation loss so far, save it
                 if early_stop_best_loss == None:
                     early_stop_best_loss = valid_loss
