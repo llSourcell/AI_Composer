@@ -87,7 +87,6 @@ if __name__ == '__main__':
     logger.addHandler(logging.StreamHandler())
     logger.addHandler(logging.FileHandler(os.path.join(run_folder, "training.log")))
 
-    # grid
     grid = {
         "dropout_prob": [0.4],
         "input_dropout_prob": [0.75],
