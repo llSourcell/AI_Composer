@@ -78,6 +78,6 @@ if __name__ == '__main__':
                 nottingham_util.accuracy(test_probs, test_data, num_samples=args.num_samples)
 
         else:
-            util.accuracy(test_probs, test_data, config, num_samples=50)
+            util.accuracy(test_probs, test_data, num_samples=50)
 
     sys.exit(1)

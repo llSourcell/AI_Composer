@@ -11,6 +11,13 @@ import midi_util
 import nottingham_util
 
 def parse_midi_directory(input_dir, time_step):
+    """ 
+    input_dir: data directory full of midi files
+    time_step: the number of ticks to use as a time step for discretization
+
+    Returns a list of [T x D] matrices, where T is the amount of time steps
+    and D is the range of notes.
+    """
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
@@ -22,11 +29,12 @@ def parse_midi_directory(input_dir, time_step):
 def batch_data(sequences, time_batch_len=128, max_time_batches=10,
                softmax=False, verbose=False):
     """
-    time_step: dataset-specific time step the MIDI should be broken up into (see parse_midi_to_sequence
-               for more details
-    time_batch_len: the max unrolling that will take place over BPTT. If -1 then set equal to the length
-                    of the longest sequence.
-    num_time_batches: the amount of time batches; any sequences below this get thrown away
+    sequences: a list of [T x D] matrices, each matrix representing a sequencey
+    time_batch_len: the unrolling length that will be used by BPTT. 
+    max_time_batches: the max amount of time batches to consider. Any sequences 
+                      longert than max_time_batches * time_batch_len will be ignored
+                      Can be set to -1 to all time batches needed.
+    softmax: Flag should be set to true if using the dual-softmax formualtion
 
     returns [
         [ [ data ], [ target ] ], # batch with one time step
@@ -99,21 +107,36 @@ def batch_data(sequences, time_batch_len=128, max_time_batches=10,
     return [ arrange_batch(b, n) for n, b in batches.iteritems() ]
         
 def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=None):
+    """
+    nottingham: The sequences object as created in prepare_nottingham_pickle
+                (see nottingham_util for more). If None, parse all the MIDI
+                files from data_dir
+    time_step: the time_step used to parse midi files (only used if data_dir
+               is provided)
+    time_batch_len and max_time_batches: see batch_data()
+
+    returns { 
+        "train": {
+            "data": [ batch_data() ],
+            "metadata: { ... }
+        },
+        "valid": { ... }
+        "test": { ... }
+    }
+    """
 
     data = {}
-
-    if nottingham:
-        pickle = nottingham
-
     for dataset in ['train', 'test', 'valid']:
 
         # For testing, use ALL the sequences
         if dataset == 'test':
             max_time_batches = -1
 
+        # Softmax formualation preparsed into sequences
         if nottingham:
-            sequences = pickle[dataset]
-            metadata = pickle[dataset + '_metadata']
+            sequences = nottingham[dataset]
+            metadata = nottingham[dataset + '_metadata']
+        # Cross-entropy formulation needs to be parsed
         else:
             sf = parse_midi_directory(os.path.join(data_dir, dataset), time_step)
             sequences = [s[1] for s in sf]
@@ -136,6 +159,18 @@ def load_data(data_dir, time_step, time_batch_len, max_time_batches, nottingham=
 
 
 def run_epoch(session, model, batches, training=False, testing=False):
+    """
+    session: Tensorflow session object
+    model: model object (see model.py)
+    batches: data object loaded from util_data()
+
+    training: A backpropagation iteration will be performed on the dataset
+    if this flag is active
+
+    returns average loss per time step over all batches.
+    if testing flag is active: returns [ loss, probs ] where is the probability
+        values for each note
+    """
 
     # shuffle batches
     shuffle(batches)
@@ -188,18 +223,16 @@ def run_epoch(session, model, batches, training=False, testing=False):
     else:
         return loss
 
-def accuracy(batch_probs, data, config, num_samples=20):
+def accuracy(batch_probs, data, num_samples=20):
     """
-    Batch Probs: { num_time_steps: [ time_step_1, time_step_2, ... ] }
-    Data: [ 
-        [ [ data ], [ target ] ], # batch with one time step
-        [ [ data1, data2 ], [ target1, target2 ] ], # batch with two time steps
-        ...
-    ]
+    batch_probs: probs object returned from run_epoch
+    data: data object passed into run_epoch
+    num_samples: the number of times to sample each note (an average over all
+    these samples will be used)
+
+    returns the accuracy metric according to
+    http://ismir2009.ismir.net/proceedings/PS2-21.pdf
     """
-    
-    time_batch_len = config["time_batch_len"]
-    input_dim = config["input_dim"]
 
     false_positives, false_negatives, true_positives = 0, 0, 0 
     for _, batch_targets in data:

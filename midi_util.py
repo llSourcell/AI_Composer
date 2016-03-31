@@ -214,35 +214,5 @@ class MidiWriter(object):
         pattern.append(self.track)
         midi.write_midifile(output_filename, pattern)
 
-def chord_on(notes=[]):
-    chord = np.zeros(RANGE, dtype=np.float32)
-    for n in notes:
-        chord[n] = 1.0
-    return chord 
-
-def cmaj():
-    return chord_on((72, 76, 79))
-
-def amin():
-    return chord_on((72, 76, 81))
-
-def fmaj():
-    return chord_on((72, 77, 81))
-
-def gmaj():
-    return chord_on((74, 79, 83))
-
-def i_vi_iv_v(n):
-    return [cmaj(), amin(), fmaj(), gmaj()] * n
-
 if __name__ == '__main__':
-    # test_name = 'data_samples/koopa_troopa_beach.mid'
-    # time_step = 64
-    # resolution = 1024
-    test_name = 'data_samples/bach_chorale.mid'
-    time_step = 120
-    resolution = 100
-
-    seq = parse_midi_to_sequence(test_name, time_step)
-    writer = MidiWriter(verbose=True) 
-    writer.dump_sequence_to_midi(seq, 'data_samples/test.midi', time_step, resolution)
+    pass

@@ -49,7 +49,10 @@ def resolve_chord(chord):
 
 def prepare_nottingham_pickle(time_step, chord_cutoff=64, filename=PICKLE_LOC, verbose=False):
     """
-    Parses the entire directory 
+    time_step: the time step to discretize all notes into
+    chord_cutoff: if chords are seen less than this cutoff, they are ignored and marked as
+                  as rests in the resulting dataset
+    filename: the location where the pickle will be saved to
     """
 
     data = {}
@@ -128,6 +131,13 @@ def prepare_nottingham_pickle(time_step, chord_cutoff=64, filename=PICKLE_LOC, v
     return True
 
 def parse_nottingham_directory(input_dir, time_step, verbose=False):
+    """
+    input_dir: a directory containing MIDI files
+
+    returns a list of [T x D] matrices, where each matrix represents a 
+    a sequence with T time steps over D dimensions
+    """
+
     files = [ os.path.join(input_dir, f) for f in os.listdir(input_dir)
               if os.path.isfile(os.path.join(input_dir, f)) ] 
     sequences = [ \
@@ -146,6 +156,12 @@ def parse_nottingham_directory(input_dir, time_step, verbose=False):
     return sequences
 
 def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
+    """
+    input_filename: a MIDI filename
+
+    returns a [T x D] matrix representing a sequence with T time steps over
+    D dimensions
+    """
     sequence = []
     pattern = midi.read_midifile(input_filename)
 
@@ -219,17 +235,6 @@ def parse_nottingham_to_sequence(input_filename, time_step, verbose=False):
                     harmonies.append(resolved)
                 else:
                     harmonies.append(NO_CHORD)
-                # harmonies.append(chord[0])
-                # # TODO: fix hack that removes 11ths
-                # if chord[0].endswith("11"):
-                #     if verbose:
-                #         print "Encountered 11th note, removing 11th ({})".format(input_filename)
-                #     chord[0] = chord[0][:-2]
-                #
-                # if chord[0] in CHORD_BLACKLIST:
-                #     harmonies.append(NO_CHORD)
-                # else:
-                #     harmonies.append(chord[0])
         else:
             harmonies.append(NO_CHORD)
 
@@ -378,10 +383,6 @@ def accuracy(batch_probs, data, num_samples=1):
     ]
     """
 
-    # reshape probability batches into [time_batch_len * max_time_batches, batch_size, input_dim]
-    # test_probs = np.concatenate(raw_probs, axis=0)
-    # ts_targets = np.concatenate(raw_targets, axis=0)
-
     def calc_accuracy():
         total = 0
         melody_correct, harmony_correct = 0, 0
@@ -507,13 +508,3 @@ if __name__ == '__main__':
     assert resolve_chord("AM11") == "AM"
 
     prepare_nottingham_pickle(time_step, verbose=True)
-    # melody, harm = parse_nottingham_to_sequence("data/Nottingham/train/ashover_simple_chords_3.mid", time_step, verbose=True)
-    # pprint(zip(range(len(harm)), harm))
-
-    # with open(PICKLE_LOC, 'r') as f:
-    #     p = cPickle.load(f)
-    # writer = NottinghamMidiWriter(p['chord_to_idx'], verbose=True)
-    # for i in range(len(p['train'])):
-    #     writer.dump_sequence_to_midi(p['train'][i], '/tmp/{}.midi'.format(p['train_metadata'][i]['name']), time_step, resolution)
-    # for i in range(len(p['test'])):
-    #     writer.dump_sequence_to_midi(p['test'][i], '/tmp/{}.midi'.format(p['test_metadata'][i]['name']), time_step, resolution)

@@ -6,15 +6,12 @@ import cPickle
 import logging
 import random
 import string
-import pprint
 
 import numpy as np
 import tensorflow as tf    
 import matplotlib.pyplot as plt
 
-import midi_util
 import nottingham_util
-import sampling
 import util
 from model import Model, NottinghamModel
 

@@ -8,7 +8,14 @@ from tensorflow.models.rnn import rnn, seq2seq
 import nottingham_util
 
 class Model(object):
-    """ Cross-Entropy naive formulation """
+    """ 
+    Cross-Entropy Naive Formulation
+    A single time step may have multiple notes active, so a sigmoid cross entropy loss
+    is used to match targets.
+
+    seq_input: a [ T x B x D ] matrix, where T is the time steps in the batch, B is the
+               batch size, and D is the amount of dimensions
+    """
     
     def __init__(self, config, training=False):
         self.config = config
@@ -94,7 +101,13 @@ class Model(object):
         return self.cell.zero_state(batch_size, tf.float32).eval(session=session)
 
 class NottinghamModel(Model):
-    """ Dual softmax formulation """
+    """ 
+    Dual softmax formulation 
+
+    A single time step should be a concatenation of two one-hot-encoding binary vectors.
+    Loss function is a sum of two softmax loss functions over [:r] and [r:] respectively,
+    where r is the number of melody classes
+    """
 
     def init_loss(self, outputs, outputs_concat):
         self.seq_targets = \
@@ -131,7 +144,12 @@ class NottinghamModel(Model):
         session.run(tf.assign(self.melody_coeff, melody_coeff))
 
 class NottinghamSeparate(Model):
-    """ Single softmax formulation """
+    """ 
+    Single softmax formulation 
+    
+    Regular single classification formulation, used to train baseline models
+    where the melody and harmony are trained separately
+    """
 
     def init_loss(self, outputs, outputs_concat):
         self.seq_targets = \
