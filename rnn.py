@@ -25,19 +25,19 @@ def get_config_name(config):
 
 class DefaultConfig(object):
     # model parameters
-    num_layers = 1
-    hidden_size = 100
+    num_layers = 2
+    hidden_size = 200
     melody_coeff = 0.5
     dropout_prob = 0.5
-    input_dropout_prob = 0.9
+    input_dropout_prob = 0.8
     cell_type = 'lstm'
 
     # learning parameters
-    max_time_batches = 9
+    max_time_batches = 9 
     time_batch_len = 128
     learning_rate = 5e-3
     learning_rate_decay = 0.9
-    num_epochs = 100
+    num_epochs = 250
 
     # metadata
     dataset = 'softmax'
@@ -88,12 +88,12 @@ if __name__ == '__main__':
     logger.addHandler(logging.FileHandler(os.path.join(run_folder, "training.log")))
 
     grid = {
-        "dropout_prob": [0.4],
-        "input_dropout_prob": [0.75],
-        "melody_coeff": [1.0],
+        "dropout_prob": [0.5],
+        "input_dropout_prob": [0.8],
+        "melody_coeff": [0.5],
         "num_layers": [2],
         "hidden_size": [200],
-        "num_epochs": [200],
+        "num_epochs": [250],
         "learning_rate": [5e-3],
         "learning_rate_decay": [0.9],
         "time_batch_len": [128],
