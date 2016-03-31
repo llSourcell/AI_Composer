@@ -7,5 +7,4 @@ tensorflow
 
 *.midi
 *.pyc
-.DS_Store
-
+img/.DS_Store
