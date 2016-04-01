@@ -47,7 +47,7 @@
 
       <div class="section">
         <h2>Introduction</h2>
-        <p>Neural Networks are all the rage these days, and with good reason. Microsoft Research's <a href="http://image-net.org/challenges/LSVRC/2015/results">winning model</a> on the 2015 ImageNet competition is classifying images with 3.57% error rate (human performance is 5.1%). Google used a variant to <a href="https://deepmind.com/alpha-go.html">crush</a> one of the world's best Go players 4-1. Crazy things are happening in the field, with no sign of slowing down. In this project, I've attempted to apply Recurrent Neural Network's to learn a predictive model over symbolic sequences of music.</p>
+        <p>Neural Networks are all the rage these days, and with good reason. Microsoft Research's <a href="http://image-net.org/challenges/LSVRC/2015/results">winning model</a> on the 2015 ImageNet competition is classifying images with 3.57% error rate (human performance is 5.1%). Google used a variant to <a href="https://deepmind.com/alpha-go.html">crush</a> one of the world's best Go players 4-1. Crazy things are happening in the field, with no sign of slowing down. In this project, I've applied recurrent neural nets to learn a predictive model over symbolic sequences of music.</p>
         <i>Disclaimer: This post assumes a familiarity with machine learning and neural networks. For a good overview of RNN's, I highly recommend reading <a href="http://karpathy.github.io/2015/05/21/rnn-effectiveness/">Andrej Karpathy's excellent blog post here</a> for an in-depth explanation</i>.
       </div>
       
@@ -57,24 +57,24 @@
         <div class="img-wrapper">
           <img src="img/encoding.png"></img>
         </div>
-        <p>The most straightforward way to learn this way is to discretize a piece of music into time steps to make it into a sequence. There are 88 possible pitches from A0 to C8 in a MIDI file, so every time step is encoded into an 88-dimensional binary vector as shown above. A value of 1 at index <i>i</i> indicates that pitch <i>i</i> is playing at a given time step. Then we plug this sequence of input vectors into an RNN architecture, where at each step the target is to predict the next time step of the sequence. A trained model outputs the conditional distribution of notes at a time step, given the all the time steps that have occured before it.</p>
+        <p>The most straightforward way to learn this way is to discretize a piece of music into uniform time steps. There are 88 possible pitches from A0 to C8 in a MIDI file, so every time step is encoded into an 88-dimensional binary vector as shown above. A value of 1 at index <i>i</i> indicates that pitch <i>i</i> is playing at a given time step. Then we plug this sequence of input vectors into an RNN architecture, where at each step the target is to predict the next time step of the sequence. A trained model outputs the conditional distribution of notes at a time step, given the all the time steps that have occured before it.</p>
 
-        <p>One problem with this naive formulation is that the amount of potential note configurations is too high ($2^{N}$ for $N$ possible notes) to take the softmax classification approach normally used in image classification and language modeling. Instead, we need to use a sigmoid cross-entropy loss function to predict the probability of whether each note class is active or not  <i>separately</i>. However, this approach does not make much sense for the complex joint distribution of notes usually found in a time step. For example, <i>C</i> is much more likely than <i>C#</i> to be playing when <i>E</i> and <i>G</i> are also active, but separate classification targets implicity assumes independence between note probabilities at the same time step. <a href="http://www-etud.iro.umontreal.ca/~boulanni/ICML2012.pdf">Modeling Temporal Dependencies in High-Dimensional Sequences (Boulanger-Lewandowski, 2012)</a>, perhaps the most succesful research paper on MLM so far, attempts to solve this problem using energy based generative models such as the Restricted Boltzmann Machine (RBM). They propose the combined RNN-RBM architecture, which achieves state-of-the-art performance on the music dataset.</p>
+        <p>One problem with this naive formulation is that the amount of potential note configurations is too high ($2^{N}$ for $N$ possible notes) to take the softmax classification approach normally used in image classification and language modeling. Instead, we need to use a sigmoid cross-entropy loss function to predict the probability of whether each note class is active or not  <i>separately</i>. However, this approach does not make much sense for the complex joint distribution of notes usually found in a time step. For example, <i>C</i> is much more likely than <i>C#</i> to be playing when <i>E</i> and <i>G</i> are also active, but separate classification targets implicity assumes independence between note probabilities at the same time step. <a href="http://www-etud.iro.umontreal.ca/~boulanni/ICML2012.pdf">Modeling Temporal Dependencies in High-Dimensional Sequences (Boulanger-Lewandowski, 2012)</a>, perhaps the most succesful research paper on MLM so far, attempts to solve this problem using energy based generative models such as the Restricted Boltzmann Machine (RBM). They propose the combined RNN-RBM architecture, which achieves state-of-the-art performance on several music datasets.</p>
       </div>
 
       <div class="section">
         <h2>Model</h2>
-        <p> For my model, I decided to take the approach of introducing more musical structure into learning. Many musical pieces can be separated into two parts: a melody and harmony. I make the two following assumptions about a piece of music for my model: First, the melody is <i>monophonic</i> (only one note at most playing at every time step). Second, the harmony at each time step can be classified into a chord class. For example, a <i>C, E, G</i> active during a time step would is classified as <i>C Major</i>. These are strong assumptions, but they lead to the nice property of exactly one active melody class and one active harmony class at every time step. This allows us to take the sum of two softmax loss functions as the loss function for or model.</p>
+        <p> For my model, I decided to take the approach of introducing more musical structure into learning. Many musical pieces can be separated into two parts: a melody and harmony. I make the two following assumptions about a piece of music for my model: First, the melody is <i>monophonic</i> (only one note at most playing at every time step). Second, the harmony at each time step can be classified into a chord class. For example, a <i>C, E, G</i> active during a time step would is classified as <i>C Major</i>. These are strong assumptions, but they lead to the nice property of exactly one active melody class and one active harmony class at every time step. This allows us to take the sum of two softmax functions as the loss function for our model.</p>
         <div class="img-wrapper">
           <img src="img/dual_softmax_fig.png"></img>
         </div>
         <p>My model works in the following way: for every time step I encode the melody note into a one-hot-encoding binary vector. I then use the notes playing in the harmony to infer the chord class, and turn that into a one-hot-encoding binary vector as well. The full input vector is a concatentation of the melody and harmony vectors. This input vector then passes through hidden layer(s) of LSTM cells. The loss function is the sum of two separate softmax loss functions over the respective melody and harmony parts of the output layer.</p>
 
         <p style="text-align: center">
-          $L(z; m, h) =  \alpha \, log \bigg( \frac{ e^{z_m} }{ \sum_{n=0}^{M-1}{ e^{z_n}}} \bigg) + (1 - \alpha) \, log \bigg( \frac{ e^{z_{M+h}} }{ \sum_{n=M}^{M+H}{ e^{z_n}}} \bigg)$
+          $L(z, m, h) =  \alpha \, log \bigg( \frac{ e^{z_m} }{ \sum_{n=0}^{M-1}{ e^{z_n}}} \bigg) + (1 - \alpha) \, log \bigg( \frac{ e^{z_{M+h}} }{ \sum_{n=M}^{M+H}{ e^{z_n}}} \bigg)$
         </p>
 
-        <p>If we have $M$ melody classes and $H$ harmony classes, the function above describes the log-likelihood loss at a given time step for the output layer logits $z \in \mathbb{R}^{M+H}$, given a target melody class $m$ and target harmony class $h$. $\alpha$ is what I call the <i>melody coefficient</i> that controls how much the loss function is affected by it's respective melody and harmony loss terms.</p>
+        <p>If we have $M$ melody classes and $H$ harmony classes, the function above describes the log-likelihood loss at a time step given the output layer $z \in \mathbb{R}^{M+H}$, a target melody class $m$, and target harmony class $h$. $\alpha$ is what I call the <i>melody coefficient</i> that controls how much the loss function is affected by it's respective melody and harmony loss terms.</p>
       </div>
 
       <div class="section">
@@ -86,7 +86,7 @@
           <p>An example musical sequence from the Nottingham dataset</p>
         </div>
 
-        <p>I used Google's <a href="https://www.tensorflow.org/">TensorFlow</a> library to implement my model. The architecture that I found worked best was 2 stacked hidden layers of 200 LSTM units each. I batched sequences by length, and used an unrolling length of 128 (8 measures) for <a href="https://en.wikipedia.org/wiki/Backpropagation_through_time">Backpropagation through time (BPTT)</a>. I used RMSProp with a learning rate of 0.005 and decay rate of 0.9 for minibatch gradient descent. When searching over the hyperparameter space, I trained each model for 250 epochs, and saved the model with the lowest validation loss.</p>
+        <p>I used Google's <a href="https://www.tensorflow.org/">TensorFlow</a> library to implement my model. The architecture that I found worked best was 2 stacked hidden layers of 200 LSTM units each. I batched sequences by length, and used an unrolling length of 128 (8 measures in 4/4 time signature) for <a href="https://en.wikipedia.org/wiki/Backpropagation_through_time">Backpropagation through time (BPTT)</a>. I used RMSProp with a learning rate of 0.005 and decay rate of 0.9 for minibatch gradient descent. When searching over the hyperparameter space, I trained each model for 250 epochs, and saved the model with the lowest validation loss.</p>
         
         <!-- TODO: overfitting image -->
         <div class="img-wrapper">
@@ -100,16 +100,16 @@
       <div class="section">
         <h2>Results</h2>
         <p>The best model I found achieved on overall accuracy of 77.84% on the test set. One nice consequence of my model is I can evaluate the melody and harmony accuracies separately, which ended up being 64.15% and 91.57% for the melody and harmony respectively. The higher harmony accuracy makes sense, because most of the pieces in the dataset hold out chords for 8 or 16 time steps (a half or whole note in 4/4 time).</p>
-        <p>Alright, enough numbers, let's get to the fun stuff. Once the model is trained, generating music from it is just a matter of sampling a melody and harmony from the probability distribution at each time step and plugging it back into the network. Rinse and repeat. I present to you 10 pieces generated by my model below. I "primed" each with the starting 4 quarter notes from a random test sequence, and then let them do their thing for 2048 time steps.</p>
+        <p>Alright, enough numbers, let's get to the fun stuff. Once the model is trained, generating music from it is just a matter of sampling a melody and harmony from the probability distribution at each time step and plugging it back into the network. Rinse and repeat. I present to you 8 more pieces generated by my model below. I "primed" each with the starting 16 time steps (1 measure in 4/4 time) from a random test sequence, and then let them do their thing for 2048 time steps.</p>
+      </div>
+      <div class="audio-wrapper">
+        <audio src="generated_music/mp3/3.mp3" width="100%" preload="none"></audio>
       </div>
       <div class="audio-wrapper" id="track-marker">
         <audio src="generated_music/mp3/1.mp3" width="100%" preload="none"></audio>
       </div>
       <div class="audio-wrapper">
         <audio src="generated_music/mp3/2.mp3" width="100%" preload="none"></audio>
-      </div>
-      <div class="audio-wrapper">
-        <audio src="generated_music/mp3/3.mp3" width="100%" preload="none"></audio>
       </div>
       <div class="audio-wrapper">
         <audio src="generated_music/mp3/4.mp3" width="100%" preload="none"></audio>
@@ -126,7 +126,7 @@
       <div class="audio-wrapper">
         <audio src="generated_music/mp3/10.mp3" width="100%" preload="none"></audio>
       </div>
-      <p>The model clearly does not produce human-level compositions. The lack of long-term structure such as repeated phrases and themes is especially revealing. However, I was pretty happy with with the pitch selection; for the most part, the model plays a melody in key with the harmony that it chooses. The melody also tends to stay in the same key signatue for short-term phrases, and sometimes the harmony accompanies it with short chord progressions in that same key. There does also seem to be small pieces of coherent rhythmic structure, although the "time signature" overall throughout a piece is sporadic.</p>
+      <p>Some turned out sounding better than others to my ears, but overall the model clearly does not produce human-level compositions. The lack of long-term structure such as repeated phrases and themes is especially revealing. However, for the most part, the model seems to play a melody in key with the harmony that it chooses. The melody also tends to stay in the same key signature for short-term phrases, and sometimes the harmony accompanies it with short chord progressions in that same key. There does also seem to be small pieces of coherent rhythmic structure, although the "time signature" overall throughout a piece is sporadic.</p>
     
     <div class="section">
       <hr>
