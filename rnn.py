@@ -46,7 +46,7 @@ class DefaultConfig(object):
     def __repr__(self):
         return """Num Layers: {}, Hidden Size: {}, Melody Coeff: {}, Dropout Prob: {}, Input Dropout Prob: {}, Cell Type: {}, Time Batch Len: {}, Learning Rate: {}, Decay: {}""".format(self.num_layers, self.hidden_size, self.melody_coeff, self.dropout_prob, self.input_dropout_prob, self.cell_type, self.time_batch_len, self.learning_rate, self.learning_rate_decay)
     
-if __name__ == '__main__':
+def train_model():
     np.random.seed()      
 
     parser = argparse.ArgumentParser(description='Script to train and save a model.')

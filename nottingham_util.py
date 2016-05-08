@@ -497,6 +497,18 @@ def i_vi_iv_v(chord_to_idx, repeats, input_dim):
     
     return full_seq
 
+def create_model():
+    resolution = 480
+    time_step = 120
+
+    assert resolve_chord("GM7") == "GM"
+    assert resolve_chord("G#dim|AM7") == "G#m"
+    assert resolve_chord("Dm9") == "Dm"
+    assert resolve_chord("AM11") == "AM"
+
+    prepare_nottingham_pickle(time_step, verbose=True)
+    print('Model created!')
+
 if __name__ == '__main__':
 
     resolution = 480
