@@ -1,6 +1,6 @@
 Overview
 ============
-A project that trains a LSTM recurrent neural network over a dataset of MIDI files. More information can be found on the [writeup about this project](http://yoavz.com/music_rnn/) or the [final report](http://yoavz.com/music_rnn_paper.pdf) written. *Warning: Some parts of this codebase are unfinished.*
+A project that trains a LSTM recurrent neural network over a dataset of MIDI files. More information can be found on the [writeup about this project](http://yoavz.com/music_rnn/). 
 
 Dependencies
 ============
@@ -10,11 +10,16 @@ Dependencies
 * Python Midi (https://github.com/vishnubob/python-midi.git)
 * Mingus (https://github.com/bspaans/python-mingus)
 
+Use [pip](https://pypi.python.org/pypi/pip) to install any missing dependencies
+
 Basic Usage
 ===========
 
 1. `mkdir data && mkdir models`
-2. Download the dataset [Nottingham MIDI dataset](http://www-etud.iro.umontreal.ca/~boulanni/Nottingham.zip) and unzip to `data/Nottingham`
-3. Run `python nottingham_util.py` to generate the sequences and chord mapping file to `data/nottingham.pickle`
-4. Run `python rnn.py --run_name YOUR_RUN_NAME_HERE` to start training the model. Use the grid object in `rnn.py` to edit hyperparameter
-   configurations.
+2. run 'python main.py'. This will collect the data, create the chord mapping file in data/nottingham.pickle, and train the model
+3. Run `python rnn_sample.py --config_file new_config_file.config` to generate a new MIDI song.
+
+
+Credits
+===========
+Credit for the vast majority of code here goes to [Yoav Zimmerman](https://github.com/yoavz). I've merely created a wrapper around all of the important functions to get people started.
