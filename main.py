@@ -4,7 +4,7 @@ import nottingham_util
 import rnn
 
 # collect the data
-url = "www-etud.iro.umontreal.ca/~boulanni/Nottingham.zip"
+url = "http://www-etud.iro.umontreal.ca/~boulanni/Nottingham.zip"
 urllib.urlretrieve(url, "dataset.zip")
 
 zip = zipfile.ZipFile(r'dataset.zip')  
