@@ -35,6 +35,10 @@ Follow the third step normally to install Tensorflow.
 `sudo apt-get install python-tk `
 
 
+```
+cd ~
+git clone https://github.com/vishnubob/python-midi
+```
 
 
 
