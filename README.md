@@ -34,7 +34,7 @@ Follow the third step normally to install Tensorflow.
 
 `sudo apt-get install python-tk `
 
-
+`pip install numpy`
 
 * Step 3:
 
