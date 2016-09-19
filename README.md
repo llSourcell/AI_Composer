@@ -26,8 +26,9 @@ export TF_BINARY_URL=https://storage.googleapis.com/tensorflow/linux/cpu/tensorf
 
 sudo pip install --upgrade $TF_BINARY_URL
 ```
+Follow the third step normally to install Tensorflow.
 
-After installing Tensorflow, you will have to install the missing depedecies:
+After installing Tensorflow, you will have to install the missing dependencies:
 
 `pip install matplotlib`
 
