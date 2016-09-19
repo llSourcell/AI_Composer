@@ -15,7 +15,7 @@ Use [pip](https://pypi.python.org/pypi/pip) to install any missing dependencies
 Installation (Tested on Ubuntu 16.04)
 ============
 
-Tensorflow version 0.8.0 must be used. On [Tensorflow's download page here](https://www.tensorflow.org/versions/r0.10/get_started/os_setup.html), scroll down to "Pip Installation". Follow the first step normally.
+1. Tensorflow version 0.8.0 must be used. On [Tensorflow's download page here](https://www.tensorflow.org/versions/r0.10/get_started/os_setup.html), scroll down to "Pip Installation". Follow the first step normally.
 
 You will see "export TF_BINARY_URL" followed by a URL. Modify the part of the url that has "tensorflow-0.10.0", so that it will download version 0.8.0, not version 0.10.0 "tensorflow-0.8.0. 
 
@@ -28,7 +28,7 @@ sudo pip install --upgrade $TF_BINARY_URL
 ```
 Follow the third step normally to install Tensorflow.
 
-After installing Tensorflow, you will have to install the missing dependencies:
+2. After installing Tensorflow, you will have to install the missing dependencies:
 
 `pip install matplotlib`
 
