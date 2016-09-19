@@ -40,6 +40,7 @@ Follow the third step normally to install Tensorflow.
 cd ~
 git clone https://github.com/vishnubob/python-midi
 cd python-midi
+python setup.py install
 ```
 
 
@@ -49,6 +50,7 @@ cd python-midi
 cd ~
 git clone https://github.com/bspaans/python-mingus
 cd python-mingus
+python setup.py install
 ```
 
 
