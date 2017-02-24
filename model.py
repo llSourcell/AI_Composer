@@ -50,7 +50,7 @@ class Model(object):
             else:
                 raise Exception("Invalid cell type: {}".format(cell_type))
 
-            cell = cell_class(hidden_size, num_units=input_size)
+            cell = cell_class(hidden_size)
             if training:
                 return tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=dropout_prob)
             else:
