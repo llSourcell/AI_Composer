@@ -1,9 +1,7 @@
 import os
 import logging
 import numpy as np
-import tensorflow as tf    
-from tensorflow.models.rnn import rnn_cell
-from tensorflow.models.rnn import rnn, seq2seq
+import tensorflow as tf
 
 import nottingham_util
 
@@ -12,11 +10,10 @@ class Model(object):
     Cross-Entropy Naive Formulation
     A single time step may have multiple notes active, so a sigmoid cross entropy loss
     is used to match targets.
-
     seq_input: a [ T x B x D ] matrix, where T is the time steps in the batch, B is the
                batch size, and D is the amount of dimensions
     """
-    
+
     def __init__(self, config, training=False):
         self.config = config
         self.time_batch_len = time_batch_len = config.time_batch_len
@@ -45,26 +42,26 @@ class Model(object):
 
         def create_cell(input_size):
             if cell_type == "vanilla":
-                cell_class = rnn_cell.BasicRNNCell
+                cell_class = tf.nn.rnn_cell.BasicRNNCell
             elif cell_type == "gru":
-                cell_class = rnn_cell.BasicGRUCell
+                cell_class = tf.nn.rnn_cell.BasicGRUCell
             elif cell_type == "lstm":
-                cell_class = rnn_cell.BasicLSTMCell
+                cell_class = tf.nn.rnn_cell.BasicLSTMCell
             else:
                 raise Exception("Invalid cell type: {}".format(cell_type))
 
-            cell = cell_class(hidden_size, input_size = input_size)
+            cell = cell_class(hidden_size)
             if training:
-                return rnn_cell.DropoutWrapper(cell, output_keep_prob = dropout_prob)
+                return tf.nn.rnn_cell.DropoutWrapper(cell, output_keep_prob=dropout_prob)
             else:
                 return cell
 
         if training:
-            self.seq_input_dropout = tf.nn.dropout(self.seq_input, keep_prob = input_dropout_prob)
+            self.seq_input_dropout = tf.nn.dropout(self.seq_input, keep_prob=input_dropout_prob)
         else:
             self.seq_input_dropout = self.seq_input
 
-        self.cell = rnn_cell.MultiRNNCell(
+        self.cell = tf.nn.rnn_cell.MultiRNNCell(
             [create_cell(input_dim)] + [create_cell(hidden_size) for i in range(1, num_layers)])
 
         batch_size = tf.shape(self.seq_input_dropout)[0]
@@ -72,7 +69,7 @@ class Model(object):
         inputs_list = tf.unpack(self.seq_input_dropout)
 
         # rnn outputs a list of [batch_size x H] outputs
-        outputs_list, self.final_state = rnn.rnn(self.cell, inputs_list, 
+        outputs_list, self.final_state = tf.nn.rnn(self.cell, inputs_list,
                                                  initial_state=self.initial_state)
 
         outputs = tf.pack(outputs_list)
@@ -83,8 +80,8 @@ class Model(object):
         # probabilities of each note
         self.probs = self.calculate_probs(logits)
         self.loss = self.init_loss(logits, logits_concat)
-        self.train_step = tf.train.RMSPropOptimizer(self.lr, decay = self.lr_decay) \
-                            .minimize(self.loss)
+        self.train_step = tf.train.RMSPropOptimizer(self.lr, decay=self.lr_decay) \
+            .minimize(self.loss)
 
     def init_loss(self, outputs, _):
         self.seq_targets = \
@@ -100,10 +97,10 @@ class Model(object):
     def get_cell_zero_state(self, session, batch_size):
         return self.cell.zero_state(batch_size, tf.float32).eval(session=session)
 
+
 class NottinghamModel(Model):
     """ 
     Dual softmax formulation 
-
     A single time step should be a concatenation of two one-hot-encoding binary vectors.
     Loss function is a sum of two softmax loss functions over [:r] and [r:] respectively,
     where r is the number of melody classes
@@ -143,10 +140,11 @@ class NottinghamModel(Model):
 
         session.run(tf.assign(self.melody_coeff, melody_coeff))
 
+
 class NottinghamSeparate(Model):
     """ 
     Single softmax formulation 
-    
+
     Regular single classification formulation, used to train baseline models
     where the melody and harmony are trained separately
     """
