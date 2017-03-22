@@ -2,8 +2,8 @@ import os
 import logging
 import numpy as np
 import tensorflow as tf    
-from tensorflow.models.rnn import rnn_cell
-from tensorflow.models.rnn import rnn, seq2seq
+from tensorflow.python.ops import rnn_cell
+from tensorflow.python.ops import rnn, seq2seq
 
 import nottingham_util
 
