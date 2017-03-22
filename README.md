@@ -48,9 +48,9 @@ python setup.py install
 Basic Usage
 ===========
 
-1. `mkdir data && mkdir models`
-2. run 'python main.py'. This will collect the data, create the chord mapping file in data/nottingham.pickle, and train the model
-3. Run `python rnn_sample.py --config_file new_config_file.config` to generate a new MIDI song.
+1. run 'python main.py'. This will collect the data, create the chord mapping file in data/nottingham.pickle, and train the model.
+A config file should be created in same folder as your models.
+2. Run `python rnn_sample.py --config_file new_config_file.config` to generate a new MIDI song.
 
 Give it 1-2 hours to train on your local machine, then generate the new song. You don't have to wait for it to finish, just wait until you see the 'saving model' message in terminal. In a future video, I'll talk about how to easily setup cloud GPU training. Likely using www.fomoro.com
 
