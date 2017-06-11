@@ -1,9 +1,10 @@
 import os
 import logging
 import numpy as np
-import tensorflow as tf    
-from tensorflow.python.ops import rnn_cell
-from tensorflow.python.ops import rnn, seq2seq
+import tensorflow as tf
+from tensorflow.contrib import rnn
+from tensorflow.contrib.rnn import BasicLSTMCell as lstm
+
 
 import nottingham_util
 
@@ -44,12 +45,8 @@ class Model(object):
             self.lr_decay = tf.constant(config.learning_rate_decay, name="learning_rate_decay")
 
         def create_cell(input_size):
-            if cell_type == "vanilla":
-                cell_class = rnn_cell.BasicRNNCell
-            elif cell_type == "gru":
-                cell_class = rnn_cell.BasicGRUCell
-            elif cell_type == "lstm":
-                cell_class = rnn_cell.BasicLSTMCell
+            if cell_type == "lstm":
+                cell_class = lstm
             else:
                 raise Exception("Invalid cell type: {}".format(cell_type))
 
@@ -64,18 +61,18 @@ class Model(object):
         else:
             self.seq_input_dropout = self.seq_input
 
-        self.cell = rnn_cell.MultiRNNCell(
+        self.cell = tf.contrib.rnn.MultiRNNCell(
             [create_cell(input_dim)] + [create_cell(hidden_size) for i in range(1, num_layers)])
 
         batch_size = tf.shape(self.seq_input_dropout)[0]
         self.initial_state = self.cell.zero_state(batch_size, tf.float32)
-        inputs_list = tf.unpack(self.seq_input_dropout)
+        inputs_list = tf.unstack(self.seq_input_dropout)
 
         # rnn outputs a list of [batch_size x H] outputs
-        outputs_list, self.final_state = rnn.rnn(self.cell, inputs_list, 
+        outputs_list, self.final_state = rnn.static_rnn(self.cell, inputs_list,
                                                  initial_state=self.initial_state)
 
-        outputs = tf.pack(outputs_list)
+        outputs = tf.stack(outputs_list)
         outputs_concat = tf.reshape(outputs, [-1, hidden_size])
         logits_concat = tf.matmul(outputs_concat, output_W) + output_b
         logits = tf.reshape(logits_concat, [self.time_batch_len, -1, input_dim])
